@@ -2,7 +2,10 @@
 
 *(Pipeline, intermediate/terminal, Collectors, Optional, Gatherers — tương tự LINQ)*
 
-`java.util.stream` (Java 8+) mang phong cách **declarative / functional** để xử lý chuỗi dữ liệu: filter, map, reduce, group — gần với LINQ to Objects trong C#.
+`java.util.stream` (Java 8+) mang phong cách **declarative / functional** để xử lý chuỗi dữ liệu: filter, map, reduce, group — gần với LINQ to Objects trong C#. Tài liệu nhắm **Java 25 LTS** (Gatherers ổn định từ 24).
+
+> Cross-link: [lambdas-functional.md](lambdas-functional.md) · [collections-generics.md](collections-generics.md) ·
+> [threading.md](threading.md) (parallel / ForkJoin) · [async.md](async.md) · [java25.md](java25.md)
 
 ---
 
@@ -23,8 +26,9 @@
   - [7. Optional](#7-optional)
   - [8. Parallel streams — caveats](#8-parallel-streams--caveats)
   - [9. Stream Gatherers (ổn định từ Java 24)](#9-stream-gatherers-ổn-định-từ-java-24)
-  - [10. Best practices \& pitfalls](#10-best-practices--pitfalls)
-  - [11. Cheat sheet ↔ LINQ](#11-cheat-sheet--linq)
+  - [10. Pitfalls (Bẫy)](#10-pitfalls-bẫy)
+  - [11. Best practices](#11-best-practices)
+  - [12. Cheat sheet ↔ LINQ](#12-cheat-sheet--linq)
 
 ---
 
@@ -340,15 +344,30 @@ Tự viết gatherer khi cần stateful intermediate phức tạp (debouncing, c
 
 ---
 
-## 10. Best practices & pitfalls
+## 10. Pitfalls (Bẫy)
+
+1. **Reuse stream đã consumed** — sau terminal, gọi lại → `IllegalStateException`. Tạo stream mới từ nguồn mỗi lần.
+2. **Side-effect trong `map` / `filter` / `peek`** — mutate shared state, I/O, logging “làm việc thật” → khó debug; parallel thì race. Side-effect chỉ thuộc terminal có chủ đích (`forEach`) hoặc collector.
+3. **Parallel mặc định** — `parallelStream()` dùng **common ForkJoinPool**; dataset nhỏ / I/O blocking / shared mutable thường **chậm hơn hoặc sai**. Prefer sequential + virtual threads cho I/O — [threading.md](threading.md).
+4. **`forEach` + collection không thread-safe** trên parallel — dùng concurrent collector / `forEachOrdered` / serial.
+5. **Không đóng** `Files.lines` / `BufferedReader.lines` — rò tài nguyên; luôn try-with-resources.
+6. **NPE nguồn** — `list.stream()` khi `list == null`; dùng empty collection hoặc `Stream.ofNullable`.
+
+```java
+Stream<String> s = list.stream().map(String::trim);
+s.toList();
+// s.count(); // IllegalStateException — đã consumed
+```
+
+---
+
+## 11. Best practices
 
 - Giữ pipeline **đọc được**: tách method references / named predicates khi lambda dài.
-- Tránh side-effect trong intermediate; mutate bên ngoài → bug + phá parallel.
-- Đóng stream gắn I/O (`Files.lines`, `BufferedReader.lines`) bằng try-with-resources.
-- Không dùng lại stream đã consumed.
 - Prefer `toList()` (unmodifiable) khi không cần mutate; `collect(toCollection(...))` khi cần kiểu cụ thể.
 - Short-circuit sớm (`filter` trước `sorted`/`map` đắt).
-- NPE: `stream` trên null collection — dùng `Collection` rỗng hoặc `Stream.ofNullable`.
+- Parallel chỉ khi đo được lợi ích CPU-bound; đo trên workload thật.
+- Gatherers (24+): dùng `Gatherers.*` built-in trước khi custom — mục 9.
 
 ```java
 Stream.ofNullable(maybeNull);          // 0 hoặc 1
@@ -357,7 +376,7 @@ Optional.ofNullable(x).stream();
 
 ---
 
-## 11. Cheat sheet ↔ LINQ
+## 12. Cheat sheet ↔ LINQ
 
 | LINQ | Stream |
 |------|--------|
@@ -385,4 +404,4 @@ var q = people.stream()
 
 ---
 
-*Java 25 LTS — Stream Gatherers final từ 24; parallel vẫn dùng common ForkJoinPool.*
+*Tham chiếu nhanh — Java 25 LTS. Stream từ 8; `toList()` từ 16; Gatherers final từ 24; parallel vẫn dùng common ForkJoinPool.*

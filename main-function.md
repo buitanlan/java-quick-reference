@@ -7,6 +7,9 @@ and Instance Main Methods** đã trở thành tính năng chính thức: có th�
 
 Tài liệu này là tham khảo thực hành: signature hợp lệ, launcher, mã thoát, và lộ trình từ compact source sang named class.
 
+> Cross-link: [java25.md](java25.md) (JEP 512) · [packages-modules.md](packages-modules.md) · [methods.md](methods.md) ·
+> [oop.md](oop.md) · [threading.md](threading.md) / [async.md](async.md) (công việc trong main)
+
 ---
 
 ## Mục lục
@@ -24,7 +27,8 @@ Tài liệu này là tham khảo thực hành: signature hợp lệ, launcher, m
   - [6. `java` launcher](#6-java-launcher)
   - [7. Exit codes \& `System.exit`](#7-exit-codes--systemexit)
   - [8. Compact source → named class (migration)](#8-compact-source--named-class-migration)
-  - [9. Ghi chú thực hành \& lỗi thường gặp](#9-ghi-chú-thực-hành--lỗi-thường-gặp)
+  - [9. Pitfalls (Bẫy)](#9-pitfalls-bẫy)
+  - [10. Best practices](#10-best-practices)
 
 ---
 
@@ -343,17 +347,23 @@ Checklist migrate:
 
 ---
 
-## 9. Ghi chú thực hành & lỗi thường gặp
+## 9. Pitfalls (Bẫy)
 
-- **Sai chữ ký**: `Main`, `main(String args)`, `public void main` (thiếu static ở classic) → `NoSuchMethodError: main`
-  hoặc launcher báo không tìm thấy entry.
-- **Sai tên class khi launch**: `java App` cần `App.class` trên classpath; package phải khớp
-  (`java com.example.App`).
-- **Nhiều main trong project**: không sao — chỉ class được chỉ định trên command line / manifest mới chạy.
-- **Daemon threads**: nếu main return nhưng còn non-daemon thread, JVM **không** thoát; virtual thread mặc định
-  non-daemon theo quy tắc thread builder — kiểm soát vòng đời rõ ràng.
+1. **Sai chữ ký classic** — `Main`, `main(String args)`, `public void main` (thiếu `static`) → launcher không tìm thấy entry / `NoSuchMethodError: main`.
+2. **Instance main không instantiable** — class abstract, không có no-arg ctor phù hợp, hoặc ctor ném → launch thất bại dù có `void main(...)`.
+3. **Unnamed class như API** — compact source không phải library type; không `import`/reference từ file khác như class có tên.
+4. **Nhầm overload với entry** — nhiều `main` overload: launcher chọn theo quy tắc JEP 512 / classic; đừng giả định “method đầu tiên trong file”.
+5. **Sai tên class khi launch** — `java App` cần `App.class` trên classpath; package phải khớp (`java com.example.App`).
+6. **Daemon / non-daemon** — main return nhưng còn non-daemon thread → JVM **không** thoát; kiểm soát vòng đời rõ — [threading.md](threading.md).
+
+---
+
+## 10. Best practices
+
+- **Production**: giữ `public static void main(String[] args)` + named class; framework (Spring Boot, Jakarta EE, …) kỳ vọng dạng này.
+- **Java 25**: compact source / instance main cho học, script, prototype; migrate sớm khi cần package, test, module — mục 8.
 - **Test**: JUnit không gọi main; tách `main` mỏng, logic vào class có thể test.
-- **Java 25**: dùng compact source cho học/script; production services giữ classic static main + module/classpath rõ ràng.
+- Nhiều main trong project ổn — chỉ class được chỉ định trên CLI / manifest mới chạy.
 
 ```java
 // Pattern khuyến nghị production
@@ -373,3 +383,7 @@ public final class Application {
     }
 }
 ```
+
+---
+
+*Tham chiếu nhanh — Java 25 LTS. Classic `main` ổn định từ lâu; compact source & instance main: [JEP 512](https://openjdk.org/jeps/512).*

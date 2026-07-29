@@ -1,6 +1,10 @@
 # Phát biểu (Statements) trong Java
 
-Tài liệu tham khảo các **statement** trong **Java 25 LTS**: khối, khai báo, rẽ nhánh (gồm pattern matching & switch expression), vòng lặp, nhảy, try-with-resources, nhãn, và `synchronized`.
+Tài liệu tham khảo các **statement** trong **Java 25 LTS**: khối, khai báo, rẽ nhánh (pattern matching & switch expression),
+vòng lặp, nhảy (`yield` vs `return`), try-with-resources, nhãn, và `synchronized`.
+
+> Cross-link: [operators.md](operators.md) · [keywords.md](keywords.md) · [exceptions.md](exceptions.md) ·
+> [oop.md](oop.md) (sealed) · [lambdas-functional.md](lambdas-functional.md) · [java25.md](java25.md)
 
 ---
 
@@ -18,7 +22,10 @@ Tài liệu tham khảo các **statement** trong **Java 25 LTS**: khối, khai b
 - [10. Labeled statements](#10-labeled-statements)
 - [11. `synchronized` statement](#11-synchronized-statement)
 - [12. Empty statement](#12-empty-statement)
-- [13. Mẹo & best practices](#13-mẹo--best-practices)
+- [13. Pitfalls (Bẫy)](#13-pitfalls-bẫy)
+- [14. Best practices & checklist](#14-best-practices--checklist)
+- [Phụ lục: Ví dụ tổng hợp](#phụ-lục-ví-dụ-tổng-hợp)
+- [Xem thêm](#xem-thêm)
 
 ---
 
@@ -188,8 +195,8 @@ static String describe(Object o) {
 record Point(int x, int y) {}
 ```
 
-- `case null` tách biệt (không còn NPE mặc định khi switch trên reference — hành vi null cần khai báo rõ từ các phiên bản pattern switch).
-- `when` = guard.
+- `case null` tách biệt (hành vi null cần khai báo rõ với pattern switch).
+- `when` = guard — **không** tham gia exhaustiveness như một type riêng.
 - Record / sealed hierarchies giúp compiler kiểm tra **exhaustiveness**.
 
 ```java
@@ -204,6 +211,55 @@ double area(Shape s) {
     }; // đủ nhánh — không cần default
 }
 ```
+
+### 5.5 Exhaustiveness traps (sealed / enum / patterns)
+
+Switch **expression** (và statement dạng pattern hiện đại) yêu cầu phủ hết miền giá trị — hoặc `default` / `case null` khi cần.
+
+| Tình huống | Bẫy | Cách tránh |
+|------------|-----|------------|
+| `sealed` + `default` | `default` **nuốt** subtype mới → mất cảnh báo khi thêm `permits` | Bỏ `default` khi sealed đủ nhánh; để compiler báo thiếu case |
+| `enum` + `default` | Tương tự — thêm hằng enum không còn lỗi compile | Switch expression không `default` nếu muốn fail-at-compile |
+| Chỉ `when` guards | `case String s when …` **không** làm exhaust `String` | Cần thêm `case String s` không guard (hoặc `default`) |
+| `case null` thiếu | Switch trên reference + pattern có thể NPE / lỗi null-hostility tùy dạng | Khai báo `case null` tường minh khi null hợp lệ |
+| Dominance / thứ tự | Case cụ thể sau case tổng quát → lỗi “dominated” | Đặt pattern hẹp / guarded **trước** pattern rộng |
+| Nested record pattern | Thiếu nhánh lồng → không exhaust | Phủ mọi combination hoặc `default` có chủ đích |
+| Preview primitives (JEP 507) | Exhaust với primitive boxes dễ nhầm | Cô lập `--enable-preview`; xem [§6](#6-pattern-matching--jep-507-preview) |
+
+```java
+enum Color { RED, GREEN, BLUE }
+
+// Tốt khi muốn compiler bắt Color mới:
+String hex(Color c) {
+    return switch (c) {
+        case RED -> "#f00";
+        case GREEN -> "#0f0";
+        case BLUE -> "#00f";
+        // không default
+    };
+}
+
+// Nguy hiểm: default che hằng mới
+String hexLoose(Color c) {
+    return switch (c) {
+        case RED -> "#f00";
+        default -> "#000"; // thêm GREEN vẫn compile — có thể sai nghiệp vụ
+    };
+}
+```
+
+```java
+// Dominance: String tổng quát phải sau guarded
+String label(Object o) {
+    return switch (o) {
+        case String s when s.isBlank() -> "blank";
+        case String s -> "text";
+        default -> "other";
+    };
+}
+```
+
+Sealed types: [oop.md](oop.md). Pattern `instanceof`: [operators.md](operators.md).
 
 ---
 
@@ -334,9 +390,12 @@ public int find(int[] a, int key) {
 }
 ```
 
-### 8.3 `yield`
+Thoát **method** (hoặc lambda / anonymous) — không “trả giá trị nhánh switch”.
 
-Chỉ trong **switch expression** (block branch), không phải iterator như C#.
+### 8.3 `yield` vs `return`
+
+`yield` chỉ trong **switch expression** (block branch) — đưa giá trị ra biểu thức `switch`, **không** thoát method.
+Không phải iterator `yield` như C# / Python.
 
 ```java
 int x = switch (n) {
@@ -344,10 +403,33 @@ int x = switch (n) {
     default -> {
         int a = fib(n - 1);
         int b = fib(n - 2);
-        yield a + b;
+        yield a + b; // giá trị của switch expression
     }
 };
 ```
+
+| | `yield` | `return` |
+|--|---------|----------|
+| Phạm vi | Switch **expression** (block `-> { }` hoặc `: … yield`) | Method / constructor / lambda body |
+| Ý nghĩa | Kết quả nhánh → giá trị biểu thức `switch` | Kết thúc method (+ giá trị nếu non-void) |
+| Trong switch statement cổ điển | Không dùng để “return method” | `return` vẫn thoát method ngay cả trong `case` |
+| Arrow expression `case … -> expr` | Không cần `yield` — `expr` đã là giá trị | — |
+
+```java
+// Sai tư duy: return trong block switch expression thoát METHOD, không phải chỉ nhánh
+int bad(int n) {
+    return switch (n) {
+        case 1 -> {
+            // return 1;  // hợp lệ nhưng thoát bad(), không “yield cho switch”
+            yield 1;
+        }
+        default -> 0;
+    };
+}
+```
+
+- Switch expression dạng `case … -> { … }` **bắt buộc** `yield` (hoặc `throw`) cho mọi đường ra giá trị.
+- Nhầm `return` / `yield` → bug kiểm soát luồng khó thấy trong nested switch.
 
 ### 8.4 `throw`
 
@@ -418,13 +500,32 @@ outer:
 for (int i = 0; i < rows; i++) {
     for (int j = 0; j < cols; j++) {
         if (bad(i, j)) break outer;
-        if (skip(j)) continue outer; // lần i kế
+        if (skip(j)) continue outer; // nhảy tới lần lặp i kế tiếp
         use(i, j);
     }
 }
 ```
 
-Dùng sparingly — thường refactor thành method/`return` rõ hơn.
+### 10.1 Pitfalls label `break` / `continue`
+
+| Bẫy | Chi tiết |
+|-----|----------|
+| Nhầm `break` vs `break label` | `break` chỉ thoát vòng **trong cùng**; thiếu label → vòng ngoài chạy tiếp |
+| `continue outer` | Bỏ phần còn lại vòng ngoài **và** tăng/iterator vòng ngoài — dễ skip logic cleanup giữa hai vòng |
+| Label không gắn loop | Label gắn block/`switch` — `continue label` chỉ hợp lệ khi label là vòng lặp |
+| Đọc khó / refactor gãy | Đổi cấu trúc nested → label trỏ sai ý; IDE rename không luôn làm rõ luồng |
+| Thay bằng method | Thường rõ hơn: `return` / `boolean found` / early exit helper |
+
+```java
+// break không label — chỉ thoát vòng j
+for (int i = 0; i < rows; i++) {
+    for (int j = 0; j < cols; j++) {
+        if (bad(i, j)) break; // i vẫn tiếp tục
+    }
+}
+```
+
+Dùng sparingly — ưu tiên method riêng + `return` khi nested sâu.
 
 ---
 
@@ -455,15 +556,42 @@ for (int i = 0; i < n; i++); // BUG thường gặp: vòng lặp rỗng
 
 ---
 
-## 13. Mẹo & best practices
+## 13. Pitfalls (Bẫy)
+
+1. **Quên `break` trong switch statement cổ điển** — fall-through âm thầm.
+2. **`default` nuốt sealed/enum** — mất exhaustiveness; subtype/hằng mới không còn lỗi compile.
+3. **Guard `when` tưởng đã phủ type** — vẫn cần case type không guard hoặc `default`.
+4. **`yield` vs `return`** — `return` thoát method; `yield` chỉ kết thúc nhánh switch expression.
+5. **`break` thiếu label** trong nested loop — chỉ thoát vòng trong.
+6. **`continue outer`** skip cleanup / logic giữa hai vòng — khó review.
+7. **`for (...);` empty statement** — thân vòng “dính” câu sau; xem §12.
+8. **Sửa collection trong enhanced-for** — `ConcurrentModificationException` (fail-fast).
+9. **Gán biến vòng enhanced-for** — không đổi phần tử collection; cần `ListIterator` / index.
+10. **`assert` làm validation API** — tắt mặc định (`-ea`); không thay `IllegalArgumentException`.
+11. **JEP 507 preview** trộn production không flag — build lệch môi trường.
+12. **`synchronized` + I/O dài** trên virtual threads — nguy cơ pinning / giữ monitor lâu.
+
+---
+
+## 14. Best practices & checklist
 
 1. Ưu tiên **switch expression** + patterns thay switch cổ điển fall-through.
-2. Dùng **sealed + records** để `switch` exhaustiveness — bớt `default` “nuốt” case mới.
+2. **Sealed + records** → để compiler bắt thiếu case; tránh `default` trừ khi cố ý.
 3. `var` khi kiểu bên phải đã rõ; tránh `var` làm mờ API quan trọng.
-4. Prefer try-with-resources hơn `finally` đóng tay.
-5. Label `break`/`continue` chỉ khi nested loop thật sự cần — cân nhắc method riêng.
-6. Đánh dấu rõ code **JEP 507 preview**; đừng trộn vào module ổn định nếu chưa chấp nhận flag preview.
-7. Blocking loops + virtual threads: tốt cho I/O-bound fan-out; CPU-bound vẫn cần pool kích thước hợp lý.
+4. Prefer try-with-resources hơn `finally` đóng tay — [exceptions.md](exceptions.md).
+5. Label `break`/`continue` chỉ khi nested thật sự cần — cân nhắc method + `return`.
+6. Đánh dấu **JEP 507 preview**; cô lập `--enable-preview` — [java25.md](java25.md).
+7. Blocking loops + virtual threads: tốt I/O-bound fan-out; CPU-bound cần pool hợp lý.
+8. Unnamed `_` (22+) khi discard — [keywords.md](keywords.md) · [literals.md](literals.md).
+
+```text
+□ switch expression: đủ nhánh / không default nuốt sealed|enum
+□ yield chỉ trong switch expression; return = thoát method
+□ nested loop: label có chủ đích hoặc extrmethod
+□ try-with-resources cho AutoCloseable
+□ không for (...);
+□ preview JEP 507 có flag rõ
+```
 
 ---
 
@@ -493,3 +621,20 @@ public final class StatementDemo {
     record Point(int x, int y) {}
 }
 ```
+
+---
+
+## Xem thêm
+
+| File | Liên quan |
+|------|-----------|
+| [operators.md](operators.md) | `instanceof`, `?:`, precedence |
+| [keywords.md](keywords.md) | `if` `switch` `for` `yield` `_` |
+| [exceptions.md](exceptions.md) | `try` / try-with-resources |
+| [oop.md](oop.md) | Sealed, records — exhaustiveness |
+| [lambdas-functional.md](lambdas-functional.md) | Effectively final trong block |
+| [java25.md](java25.md) | Preview patterns, LTS |
+
+---
+
+*Tham chiếu nhanh — Java 25 LTS. Switch expression 14+; pattern switch 21; unnamed `_` 22+; JEP 507 preview trên 25.*

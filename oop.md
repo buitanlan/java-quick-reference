@@ -1,8 +1,15 @@
-# Lập trình hướng đối tượng trong Java  
+# Lập trình hướng đối tượng trong Java
 
 *(Class, inheritance, sealed, records, enums, Object)*
 
-Java là ngôn ngữ **object-oriented** (với hỗ trợ functional ngày càng mạnh). Mọi thứ (trừ primitive) đều gắn với object trên heap; mọi class kế thừa (trực tiếp/gián tiếp) từ `java.lang.Object`.
+Tài liệu tham chiếu OOP Java theo thực hành **Java 25 LTS**: class/object, thứ tự khởi tạo, kế thừa & đa hình,
+sealed types, interface (default/diamond), composition, records, enums, nested classes, `equals`/`hashCode`,
+và các bẫy thường gặp. Mọi thứ (trừ primitive) gắn với object trên heap; mọi class kế thừa (trực tiếp/gián tiếp)
+từ `java.lang.Object`.
+
+Cross-link: [typesystem.md](typesystem.md) · [methods.md](methods.md) · [keywords.md](keywords.md) ·
+[lambdas-functional.md](lambdas-functional.md) · [collections-generics.md](collections-generics.md) ·
+[threading.md](threading.md) · [java25.md](java25.md)
 
 ---
 
@@ -17,25 +24,40 @@ Java là ngôn ngữ **object-oriented** (với hỗ trợ functional ngày càn
     - [1.4 Static vs instance](#14-static-vs-instance)
     - [1.5 Constructors](#15-constructors)
     - [1.6 JEP 513 — Flexible Constructor Bodies (final Java 25)](#16-jep-513--flexible-constructor-bodies-final-java-25)
-  - [2. Kế thừa \& Đa hình](#2-kế-thừa--đa-hình)
-    - [2.1 `extends`, `super`, override](#21-extends-super-override)
-    - [2.2 Abstract class \& `abstract` methods](#22-abstract-class--abstract-methods)
-    - [2.3 `final` (class / method / field)](#23-final-class--method--field)
-    - [2.4 Sealed classes (`sealed` / `permits` / `non-sealed`)](#24-sealed-classes-sealed--permits--non-sealed)
-  - [3. Interface](#3-interface)
-    - [3.1 Khai báo \& triển khai](#31-khai-báo--triển-khai)
-    - [3.2 Default / static / private methods](#32-default--static--private-methods)
-    - [3.3 Đa kế thừa kiểu (multiple inheritance of type)](#33-đa-kế-thừa-kiểu-multiple-inheritance-of-type)
-  - [4. Records](#4-records)
-    - [4.1 Khai báo \& semantics](#41-khai-báo--semantics)
-    - [4.2 Compact constructors](#42-compact-constructors)
-  - [5. Enums](#5-enums)
-  - [6. Nested / Inner / Local / Anonymous classes](#6-nested--inner--local--anonymous-classes)
-  - [7. Equality \& `toString`](#7-equality--tostring)
-    - [7.1 `equals` / `hashCode` conventions](#71-equals--hashcode-conventions)
-    - [7.2 `Objects` helpers](#72-objects-helpers)
-  - [8. Object methods overview](#8-object-methods-overview)
-  - [9. Best practices tổng hợp](#9-best-practices-tổng-hợp)
+  - [2. Thứ tự khởi tạo (Initialization order)](#2-thứ-tự-khởi-tạo-initialization-order)
+    - [2.1 Instance: field init → initializer block → ctor](#21-instance-field-init--initializer-block--ctor)
+    - [2.2 Static initialization](#22-static-initialization)
+    - [2.3 Superclass gọi overridable method trong ctor](#23-superclass-gọi-overridable-method-trong-ctor)
+  - [3. Kế thừa \& Đa hình](#3-kế-thừa--đa-hình)
+    - [3.1 `extends`, `super`, override](#31-extends-super-override)
+    - [3.2 Abstract class \& `abstract` methods](#32-abstract-class--abstract-methods)
+    - [3.3 `final` (class / method / field)](#33-final-class--method--field)
+    - [3.4 Sealed classes (`sealed` / `permits` / `non-sealed`)](#34-sealed-classes-sealed--permits--non-sealed)
+  - [4. Composition vs inheritance](#4-composition-vs-inheritance)
+  - [5. Interface](#5-interface)
+    - [5.1 Khai báo \& triển khai](#51-khai-báo--triển-khai)
+    - [5.2 Default / static / private methods](#52-default--static--private-methods)
+    - [5.3 Đa kế thừa kiểu \& diamond default conflict](#53-đa-kế-thừa-kiểu--diamond-default-conflict)
+  - [6. Records](#6-records)
+    - [6.1 Khai báo \& semantics](#61-khai-báo--semantics)
+    - [6.2 Compact constructors](#62-compact-constructors)
+    - [6.3 Local records, nested \& constraints](#63-local-records-nested--constraints)
+    - [6.4 Reflection (`RecordComponent`) \& serialization](#64-reflection-recordcomponent--serialization)
+  - [7. Enums](#7-enums)
+    - [7.1 Khai báo \& semantics](#71-khai-báo--semantics)
+    - [7.2 Constant-specific class bodies \& abstract methods](#72-constant-specific-class-bodies--abstract-methods)
+    - [7.3 `EnumSet` / `EnumMap` \& switch exhaustiveness](#73-enumset--enummap--switch-exhaustiveness)
+  - [8. Nested / Inner / Local / Anonymous classes](#8-nested--inner--local--anonymous-classes)
+    - [8.1 Các loại nested](#81-các-loại-nested)
+    - [8.2 Bẫy: inner giữ outer — memory leak](#82-bẫy-inner-giữ-outer--memory-leak)
+  - [9. Equality \& `toString`](#9-equality--tostring)
+    - [9.1 `equals` / `hashCode` conventions](#91-equals--hashcode-conventions)
+    - [9.2 `getClass()` vs `instanceof`, subclass asymmetry](#92-getclass-vs-instanceof-subclass-asymmetry)
+    - [9.3 Mutable keys, BigDecimal](#93-mutable-keys-bigdecimal)
+    - [9.4 `Objects` helpers](#94-objects-helpers)
+  - [10. Object methods overview \& layout](#10-object-methods-overview--layout)
+  - [11. Pitfalls](#11-pitfalls)
+  - [12. Best practices](#12-best-practices)
 
 ---
 
@@ -61,6 +83,7 @@ public class Person {
 - `class` tạo **kiểu tham chiếu (reference type)**. Instance nằm trên **heap**; biến giữ **reference**.
 - Một `.java` file **public top-level** phải trùng tên file với class `public`.
 - Thành viên: field, method, constructor, nested type, initializer block.
+- Chi tiết method: [methods.md](methods.md); keyword liên quan: [keywords.md](keywords.md).
 
 ### 1.2 Fields
 
@@ -105,7 +128,7 @@ public final class MathUtil {
 
 - `static` method/field: gọi qua tên class (`MathUtil.clamp(...)`).
 - Static context **không** truy cập `this` / instance members trực tiếp.
-- Static initializer `{ ... }` chạy một lần khi class được load.
+- Static initializer `{ ... }` chạy một lần khi class được load — chi tiết thứ tự: mục [2](#2-thứ-tự-khởi-tạo-initialization-order).
 
 ```java
 static {
@@ -184,13 +207,89 @@ public class Child extends SafeBase {
 }
 ```
 
-> Trước JEP 513, validate trước `super` thường phải “nhét” vào biểu thức đối số (`super(requirePositive(x), ...)`) — khó đọc. Flexible bodies giải quyết đúng vấn đề đó.
+> **Lưu ý**: Trước JEP 513, validate trước `super` thường phải “nhét” vào biểu thức đối số (`super(requirePositive(x), ...)`) — khó đọc. Flexible bodies giải quyết đúng vấn đề đó. Chi tiết Java 25: [java25.md](java25.md).
 
 ---
 
-## 2. Kế thừa & Đa hình
+## 2. Thứ tự khởi tạo (Initialization order)
 
-### 2.1 `extends`, `super`, override
+### 2.1 Instance: field init → initializer block → ctor
+
+Khi `new Sub(...)`:
+
+1. Cấp phát object + zero/null defaults cho fields.
+2. Chạy chuỗi ctor từ **superclass → subclass** (sau mỗi `super(...)` return).
+3. Trong mỗi class (theo thứ tự xuất hiện trong source): **field initializers** + **instance initializer blocks** `{ ... }`, rồi phần còn lại của constructor body (epilogue).
+
+```java
+class Super {
+    int a = print("Super.field");
+    { System.out.println("Super.block"); }
+    Super() { System.out.println("Super.ctor"); }
+}
+
+class Sub extends Super {
+    int b = print("Sub.field");
+    { System.out.println("Sub.block"); }
+    Sub() { System.out.println("Sub.ctor"); }
+
+    static int print(String s) {
+        System.out.println(s);
+        return 0;
+    }
+}
+
+// new Sub() in ra:
+// Super.field → Super.block → Super.ctor → Sub.field → Sub.block → Sub.ctor
+```
+
+- `super(...)` (hoặc implicit) chạy **trước** field init / instance block của subclass.
+- Nhiều instance blocks: theo thứ tự textual, xen kẽ với field initializers.
+- Constructor chaining `this(...)`: chỉ ctor “cuối” (không gọi `this`) chạy field init + instance blocks một lần.
+
+### 2.2 Static initialization
+
+Khi class lần đầu được **initialize** (JLS):
+
+1. Superclass static init (đệ quy lên).
+2. Static field initializers + `static { }` blocks theo thứ tự textual trong class.
+
+```java
+class A {
+    static int x = print("A.x");
+    static { System.out.println("A.static"); }
+    static int print(String s) { System.out.println(s); return 1; }
+}
+```
+
+**Bẫy circular static init**: hai class tham chiếu static lẫn nhau → một phía có thể thấy giá trị mặc định (0/`null`) chưa chạy xong initializer.
+
+> **Lưu ý**: Exception trong static initializer → `ExceptionInInitializerError`; class coi như lỗi khởi tạo — lần dùng sau thường `NoClassDefFoundError`.
+
+### 2.3 Superclass gọi overridable method trong ctor
+
+```java
+class Base {
+    Base() { hook(); }          // gọi virtual khi subclass chưa init xong
+    void hook() { System.out.println("Base"); }
+}
+
+class Derived extends Base {
+    private final String name = "derived";
+    @Override void hook() {
+        System.out.println(name); // trước JEP 513: thường null (field chưa gán)
+    }
+}
+```
+
+- Dynamic dispatch chạy ngay trong ctor cha → subclass override thấy state **chưa** qua field init / epilogue.
+- Tránh gọi overridable / abstract method từ constructor; nếu bắt buộc (legacy base) → gán field trong **prologue** (**JEP 513**, Java 25) như mục 1.6, hoặc dùng composition / factory sau khi object fully constructed.
+
+---
+
+## 3. Kế thừa & Đa hình
+
+### 3.1 `extends`, `super`, override
 
 ```java
 public class Animal {
@@ -212,9 +311,9 @@ a.speak();          // "woof" — dynamic dispatch
 - Java: **single inheritance** của class (`extends` đúng một class).
 - `@Override` nên luôn gắn khi ghi đè — bắt lỗi signature sai lúc compile.
 - Gọi implementation cha: `super.speak()`.
-- Covariant return type được phép khi override.
+- Covariant return type được phép khi override — [methods.md](methods.md).
 
-### 2.2 Abstract class & `abstract` methods
+### 3.2 Abstract class & `abstract` methods
 
 ```java
 public abstract class Shape {
@@ -238,7 +337,7 @@ public class Circle extends Shape {
 - Có thể chứa state, ctor, concrete + abstract methods.
 - Dùng khi có **shared implementation / state**; interface khi chỉ cần **contract**.
 
-### 2.3 `final` (class / method / field)
+### 3.3 `final` (class / method / field)
 
 ```java
 public final class Money { /* không subclass được */ }
@@ -251,9 +350,9 @@ public class Account {
 
 - `final class`: bảo mật / bất biến thiết kế (vd. `String`, nhiều value type kiểu record).
 - `final method`: khóa hành vi (template method hooks chọn lọc).
-- `final` local / parameter: không gán lại (thường dùng cho effectively final + lambda).
+- `final` local / parameter: không gán lại (thường dùng cho effectively final + lambda — [lambdas-functional.md](lambdas-functional.md)).
 
-### 2.4 Sealed classes (`sealed` / `permits` / `non-sealed`)
+### 3.4 Sealed classes (`sealed` / `permits` / `non-sealed`)
 
 Kiểm soát **ai được kế thừa** — kết hợp mạnh với pattern matching / `switch`.
 
@@ -278,12 +377,62 @@ double eval(Expr e) {
 - `sealed` + `permits`: whitelist subtype.
 - Subtype phải: `final`, `sealed`, hoặc `non-sealed` (mở lại cây kế thừa).
 - Subtype thường cùng module / cùng package (quy tắc accessibility).
+- Bức tranh kiểu / pattern matching: [typesystem.md](typesystem.md).
 
 ---
 
-## 3. Interface
+## 4. Composition vs inheritance
 
-### 3.1 Khai báo & triển khai
+**Prefer composition** khi không có quan hệ **is-a** rõ ràng hoặc khi chỉ muốn tái sử dụng implementation.
+
+```java
+// Inheritance — "EngineeredVehicle is-a Vehicle" rõ
+public class Vehicle {
+    public void start() { /* ... */ }
+}
+public class Car extends Vehicle {
+    public void drive() { start(); /* ... */ }
+}
+
+// Composition — "has-a" Engine; linh hoạt thay implementation
+public final class Car2 {
+    private final Engine engine;
+
+    public Car2(Engine engine) {
+        this.engine = Objects.requireNonNull(engine);
+    }
+
+    public void drive() {
+        engine.start();
+        // ...
+    }
+}
+
+public interface Engine { void start(); }
+public final class ElectricEngine implements Engine {
+    @Override public void start() { /* ... */ }
+}
+```
+
+| Tiêu chí | Inheritance (`extends`) | Composition (has-a) |
+|----------|-------------------------|---------------------|
+| Quan hệ | is-a | has-a / uses-a |
+| Coupling | chặt (lộ protected API cha) | lỏng (qua interface nhỏ) |
+| Thay hành vi lúc runtime | khó (cố định hierarchy) | dễ (đổi dependency) |
+| Fragile base class | có | ít hơn |
+| Đa hình | class hierarchy | thường qua interface |
+
+- Inheritance phù hợp khi subtype **là** specialization thật sự và bạn kiểm soát được base (sealed/final hooks).
+- `extends` chỉ để lấy vài method tiện → thường sai; extract collaborator / delegate.
+- Decorator / wrapper (`FilterInputStream`, …) là composition cổ điển.
+
+> **Lưu ý**: “Reuse qua `extends`” dễ phá encapsulation (`protected`) và làm `equals`/`hashCode` khó đúng (mục 9).
+
+---
+
+## 5. Interface
+
+### 5.1 Khai báo & triển khai
 
 ```java
 public interface Repository<T> {
@@ -304,7 +453,7 @@ public class InMemoryRepo implements Repository<User> {
 - Field trong interface: ngầm `public static final`.
 - Method abstract: ngầm `public abstract` (trừ default/static/private).
 
-### 3.2 Default / static / private methods
+### 5.2 Default / static / private methods
 
 ```java
 public interface Logger {
@@ -327,9 +476,9 @@ public interface Logger {
 - **Default methods**: evolution API mà không phá binary compatibility của implementors cũ.
 - **Static methods**: factory / utilities gắn interface.
 - **Private (instance/static) methods**: helper cho default/static — không phải API công khai.
-- Conflict hai default cùng signature → class phải override và chọn (`InterfaceName.super.method()`).
+- SAM + lambda: [lambdas-functional.md](lambdas-functional.md).
 
-### 3.3 Đa kế thừa kiểu (multiple inheritance of type)
+### 5.3 Đa kế thừa kiểu & diamond default conflict
 
 ```java
 interface Readable { void read(); }
@@ -343,13 +492,42 @@ class File implements ReadWritable {
 ```
 
 - Java **không** đa kế thừa class (tránh diamond state).
-- Diamond với default methods: compiler bắt buộc resolve tường minh.
+- Diamond với **default methods** cùng signature → class/interface phải **override và chọn tường minh**.
+
+```java
+interface A {
+    default String m() { return "A"; }
+}
+interface B {
+    default String m() { return "B"; }
+}
+
+// Compile error nếu chỉ: class C implements A, B {}
+class C implements A, B {
+    @Override
+    public String m() {
+        // Resolve tường minh — cú pháp InterfaceName.super.method()
+        return A.super.m() + "+" + B.super.m(); // "A+B"
+    }
+}
+```
+
+Quy tắc tóm tắt:
+
+| Tình huống | Kết quả |
+|------------|---------|
+| Một default, không abstract xung đột | Dùng default đó |
+| Class concrete method vs interface default | **Class thắng** |
+| Hai interface default cùng signature | Phải override + `X.super.m()` |
+| Sub-interface override default của super-interface | Sub-interface thắng cho implementor |
+
+**Bẫy**: quên override khi thêm default mới vào interface thứ hai → break compile của implementor (cố ý — an toàn hơn silent pick).
 
 ---
 
-## 4. Records
+## 6. Records
 
-### 4.1 Khai báo & semantics
+### 6.1 Khai báo & semantics
 
 ```java
 public record UserId(long value) {
@@ -362,10 +540,11 @@ public record Point(int x, int y) {}
 ```
 
 - Record = **shallowly immutable data carrier**: header components → private final fields + canonical ctor + accessors `x()`/`y()` + `equals`/`hashCode`/`toString`.
-- Ngầm `final`, kế thừa `java.lang.Record` (không `extends` class khác).
+- Ngầm `final`, kế thừa `java.lang.Record` — **không** `extends` class khác (kể cả abstract).
 - Có thể `implements` interface; thêm static members, compact/custom ctor, methods.
+- Components shallow immutable: reference field vẫn có thể trỏ object mutable — đừng lộ mutable state nếu cần value semantics thật.
 
-### 4.2 Compact constructors
+### 6.2 Compact constructors
 
 ```java
 public record Range(int start, int end) {
@@ -382,9 +561,50 @@ public record Range(int start, int end) {
 - Compact constructor: validate / normalize **trước** khi field được gán.
 - Không cần (và không được) gán `this.start = start` thủ công theo kiểu thường — assignment tới components được xử lý bởi cơ chế compact.
 
+### 6.3 Local records, nested & constraints
+
+```java
+void handle(List<String> lines) {
+    // Local record (Java 16+) — chỉ trong method/block
+    record Line(int n, String text) {}
+    List<Line> parsed = IntStream.range(0, lines.size())
+            .mapToObj(i -> new Line(i + 1, lines.get(i)))
+            .toList();
+}
+
+public class OrderService {
+    // Nested record: static nested ngầm (không giữ outer.this)
+    public record OrderId(long value) {}
+}
+```
+
+- Local / nested records: tiện DTO tạm, intermediate trong stream pipeline.
+- Nested record **không** phải inner class — không capture enclosing instance.
+- Không khai báo instance field ngoài components; không thêm native methods tùy tiện theo JLS record rules.
+- Có thể khai báo nested enum/interface/class tĩnh bên trong record.
+
+### 6.4 Reflection (`RecordComponent`) & serialization
+
+```java
+RecordComponent[] comps = Point.class.getRecordComponents();
+for (RecordComponent c : comps) {
+    System.out.println(c.getName() + " : " + c.getType());
+    // c.getAccessor() → Method accessor
+}
+Point.class.isRecord(); // true
+```
+
+- `Class.isRecord()`, `getRecordComponents()` — introspection ổn định hơn đoán field synthetic.
+- Serialization: record serialize theo **canonical constructor** + components (không theo custom `writeObject` kiểu class cũ theo cùng mô hình). Version skew / missing component → lỗi rõ hơn “field lạ bỏ qua”.
+- Framework JSON (Jackson, …) thường map theo accessor tên component — kiểm tra config nếu dùng `getX()` style cũ.
+
+> **Lưu ý**: Record **không thể** mở rộng class khác; muốn hierarchy đóng → `sealed interface` + các record permits (mục 3.4).
+
 ---
 
-## 5. Enums
+## 7. Enums
+
+### 7.1 Khai báo & semantics
 
 ```java
 public enum Level {
@@ -402,14 +622,59 @@ public enum Level {
 }
 ```
 
-- Enum = class đặc biệt: cố định instances (`Level.INFO`), `Enum<E>` superclass.
-- Có thể có fields, methods, abstract methods per-constant, implement interfaces.
-- Switch trên enum: exhaustiveness hữu ích; `EnumSet` / `EnumMap` tối ưu.
+- Enum = class đặc biệt: cố định instances (`Level.INFO`), superclass `Enum<E>`.
+- Có thể có fields, methods, implement interfaces.
 - So sánh identity thường dùng `==` (an toàn với enum constants).
+- `name()` / `ordinal()` / `valueOf` / `values()` — tránh dựa `ordinal()` cho persistence (đổi thứ tự = vỡ data).
+
+### 7.2 Constant-specific class bodies & abstract methods
+
+```java
+public enum Op {
+    PLUS {
+        @Override public int apply(int a, int b) { return a + b; }
+    },
+    MINUS {
+        @Override public int apply(int a, int b) { return a - b; }
+    };
+
+    public abstract int apply(int a, int b);
+}
+```
+
+- Mỗi constant có thể có **class body** riêng (anonymous subclass của enum).
+- Pattern thay `switch` phân tán khi mỗi constant có hành vi khác biệt rõ.
+- Enum vẫn `final` về mặt mở rộng ngoài các constant đã khai báo.
+
+### 7.3 `EnumSet` / `EnumMap` & switch exhaustiveness
+
+```java
+EnumSet<Level> alerts = EnumSet.of(Level.WARN, Level.ERROR);
+EnumMap<Level, String> labels = new EnumMap<>(Level.class);
+labels.put(Level.INFO, "informational");
+
+String emoji = switch (Level.INFO) {
+    case DEBUG -> "…";
+    case INFO  -> "i";
+    case WARN  -> "!";
+    case ERROR -> "x";
+    // sealed-like exhaustiveness trên enum: đủ case → không cần default
+};
+```
+
+| API | Khi dùng |
+|-----|----------|
+| `EnumSet` | tập bit-vector tối ưu theo enum universe — [collections-generics.md](collections-generics.md) |
+| `EnumMap` | map key = enum; array-backed, nhanh, không `HashMap` overhead |
+| `switch` / pattern | exhaustiveness khi cover mọi constant (thêm constant → compile error nếu thiếu case) |
+
+**Bẫy**: `EnumSet.allOf` + mutate shared static set mà không copy → race / side-effect toàn cục — prefer local hoặc immutable copy khi share.
 
 ---
 
-## 6. Nested / Inner / Local / Anonymous classes
+## 8. Nested / Inner / Local / Anonymous classes
+
+### 8.1 Các loại nested
 
 ```java
 public class Outer {
@@ -451,17 +716,49 @@ public class Outer {
 | local | Có (nếu non-static) | Scope hẹp trong method |
 | anonymous | Có | One-shot (ưu tiên lambda nếu SAM) |
 
+### 8.2 Bẫy: inner giữ outer — memory leak
+
+Non-static inner / anonymous / lambda capture giữ reference tới enclosing instance (`Outer.this`).
+
+```java
+public class ListenerHub {
+    private final List<Runnable> listeners = new ArrayList<>();
+
+    public void registerLeak() {
+        // anonymous inner → giữ ListenerHub.this
+        listeners.add(new Runnable() {
+            @Override public void run() { /* ... */ }
+        });
+    }
+
+    public void registerBetter(Runnable r) {
+        listeners.add(Objects.requireNonNull(r)); // caller kiểm soát lifetime
+    }
+
+    // Prefer static nested khi không cần outer state
+    public static final class Stats {
+        int count;
+    }
+}
+```
+
+- Đăng ký listener/callback là inner của Activity/Service/`this` lớn → object ngoài **không GC** được dù UI đã destroy (cùng pattern Android / Swing).
+- **Prefer static nested** (+ truyền outer tường minh nếu cần) hoặc lambda/method ref tới helper không capture nặng.
+- Serialization inner class cũng kéo outer — thường không serialize inner.
+
+> **Lưu ý**: Nested **record** / **enum** luôn static về mặt enclosing reference — an toàn hơn inner class cổ điển.
+
 ---
 
-## 7. Equality & `toString`
+## 9. Equality & `toString`
 
-### 7.1 `equals` / `hashCode` conventions
+### 9.1 `equals` / `hashCode` conventions
 
 Hợp đồng `Object.equals`:
 
 - Reflexive, symmetric, transitive, consistent; `x.equals(null) == false`.
 - **Luôn** override `hashCode` khi override `equals` — bằng nhau ⇒ cùng hash.
-- Dùng trong `HashMap`/`HashSet`: vi phạm hợp đồng → bug khó tìm.
+- Dùng trong `HashMap`/`HashSet`: vi phạm hợp đồng → bug khó tìm — [collections-generics.md](collections-generics.md).
 
 ```java
 public final class Money {
@@ -492,10 +789,73 @@ public final class Money {
 }
 ```
 
-- Prefer `instanceof` pattern (Java 16+) thay vì `getClass()` trừ khi hierarchy đòi hỏi so khớp class chính xác.
-- Record / enum: `equals`/`hashCode`/`toString` đã đúng mặc định.
+- Record / enum: `equals`/`hashCode`/`toString` đã đúng mặc định (shallow components / identity).
 
-### 7.2 `Objects` helpers
+### 9.2 `getClass()` vs `instanceof`, subclass asymmetry
+
+```java
+// instanceof (Java 16+ pattern) — cho phép subclass equals cha nếu không cẩn thận
+@Override
+public boolean equals(Object o) {
+    return o instanceof Point p && x == p.x && y == p.y;
+}
+
+// getClass() — chỉ cùng runtime class
+@Override
+public boolean equals(Object o) {
+    if (o == null || getClass() != o.getClass()) return false;
+    Point p = (Point) o;
+    return x == p.x && y == p.y;
+}
+```
+
+| Cách | Ưu | Nhược |
+|------|----|-------|
+| `instanceof` / pattern | Đơn giản; hợp LSP nếu class `final` hoặc equals không phụ thuộc subclass state | Subclass thêm field dễ **phá symmetry/transitivity** |
+| `getClass()` | Chặt: `ColorPoint` ≠ `Point` cùng tọa độ | Không equals được khi so qua base type cố ý |
+
+**Bẫy asymmetry**:
+
+```java
+// Point.equals dùng instanceof; ColorPoint.equals so thêm color
+Point p = new Point(1, 2);
+ColorPoint cp = new ColorPoint(1, 2, RED);
+p.equals(cp);  // true
+cp.equals(p);  // false — phá symmetric
+```
+
+- Prefer **`final` class** hoặc **record** cho value types; hoặc composition thay subclass thêm state equality.
+- Sealed hierarchy: document chiến lược equals rõ (thường so khớp đúng subtype).
+
+### 9.3 Mutable keys, BigDecimal
+
+**Bẫy mutable key trong `HashMap`/`HashSet`:**
+
+```java
+var key = new ArrayList<>(List.of("a"));
+Map<List<String>, Integer> map = new HashMap<>();
+map.put(key, 1);
+key.add("b");           // hashCode đổi sau khi insert
+map.get(key);           // thường null — mất entry logic
+map.get(List.of("a"));  // cũng không tìm thấy
+```
+
+- Key phải **immutable** về các field tham gia `equals`/`hashCode` (hoặc không mutate khi đang là key).
+- Prefer record / `List.copyOf` / defensive copy.
+
+**BigDecimal — `compareTo` vs `equals`:**
+
+```java
+var a = new BigDecimal("1.0");
+var b = new BigDecimal("1.00");
+a.compareTo(b) == 0; // true — cùng giá trị số
+a.equals(b);         // false — khác scale
+```
+
+- Money/domain: thường so bằng `compareTo` (và `hashCode` qua `stripTrailingZeros()` như ví dụ Money).
+- Đừng trộn `equals` BigDecimal với giả định “cùng số là bằng”.
+
+### 9.4 `Objects` helpers
 
 ```java
 Objects.equals(a, b);           // null-safe
@@ -506,7 +866,7 @@ Objects.toString(x, "default");
 
 ---
 
-## 8. Object methods overview
+## 10. Object methods overview & layout
 
 | Method | Ý nghĩa |
 |--------|---------|
@@ -516,7 +876,7 @@ Objects.toString(x, "default");
 | `getClass()` | Runtime class (final) |
 | `clone()` | Shallow copy — **hiếm dùng**; prefer copy ctor / factory |
 | `finalize()` | **Deprecated for removal** — đừng dùng; dùng `Cleaner` / try-with-resources |
-| `wait` / `notify` / `notifyAll` | Monitor low-level — ưu tiên `java.util.concurrent` |
+| `wait` / `notify` / `notifyAll` | Monitor low-level — ưu tiên `java.util.concurrent` — [threading.md](threading.md) |
 
 ```java
 synchronized (lock) {
@@ -528,18 +888,41 @@ synchronized (lock) {
 }
 ```
 
----
-
-## 9. Best practices tổng hợp
-
-- **Composition over inheritance** khi không có quan hệ “is-a” rõ.
-- API công khai: interface nhỏ; implementation `final` nếu không thiết kế để mở rộng.
-- Dùng **sealed** cho domain closed; **record** cho DTO / value object.
-- Tránh gọi overridable methods từ constructor; nếu superclass làm vậy — init field trong prologue (JEP 513).
-- Encapsulation: fields `private`; expose qua methods / record accessors.
-- Equality: consistent với nghiệp vụ; document nếu so sánh dùng `compareTo` (Money, BigDecimal).
-- Prefer immutability (`final` fields, records) để đơn giản hóa concurrency.
+**Object layout (tóm tắt):** mỗi instance trên HotSpot có **object header** + fields (và padding alignment). Nhiều object nhỏ → header chiếm tỷ lệ đáng kể. **JEP 519 — Compact Object Headers** (Java 25) thu gọn header → giảm footprint / tăng mật độ cache. Chi tiết GC & headers: [typesystem.md](typesystem.md) §2.1 · [java25.md](java25.md).
 
 ---
 
-*Tham chiếu Java 25 LTS — Flexible Constructor Bodies: [JEP 513](https://openjdk.org/jeps/513).*
+## 11. Pitfalls
+
+1. **Gọi overridable method từ constructor** — subclass thấy field chưa init; mitigations: `final` method, factory, prologue gán field (**JEP 513**).
+2. **Static init circular / side-effect nặng** — giá trị mặc định tạm thời hoặc `ExceptionInInitializerError`.
+3. **Inheritance thay cho has-a** — fragile base class, lộ `protected`, `equals` khó đúng → prefer composition (mục 4).
+4. **Diamond default methods** — quên `A.super.m()` / `B.super.m()` → không compile (đúng hướng); class method thắng default.
+5. **`equals`/`hashCode` lệch hợp đồng** — đặc biệt subclass + `instanceof`, hoặc mutate key sau khi `put` vào `HashMap`.
+6. **`BigDecimal.equals` vs `compareTo`** — `1.0` ≠ `1.00` theo `equals`.
+7. **Inner class giữ outer** — listener/callback leak; prefer static nested / không capture `this` lớn.
+8. **Record tưởng deep-immutable** — component là mutable reference vẫn đổi state bên trong.
+9. **`Enum.ordinal()` persistence** — đổi thứ tự constant phá data; dùng `name()` hoặc field ổn định.
+10. **`clone()` / `finalize()`** — API di sản; copy ctor + `Cleaner` / try-with-resources.
+11. **`wait` không trong loop / sai lock** — spurious wakeup; ưu tiên `j.u.c` — [threading.md](threading.md).
+
+---
+
+## 12. Best practices
+
+Checklist nhanh:
+
+- [ ] **Composition over inheritance** khi không có is-a rõ; dependency qua interface nhỏ.
+- [ ] API công khai: interface / sealed tối thiểu; implementation `final` nếu không thiết kế mở rộng.
+- [ ] Domain đóng → **sealed**; DTO / value object → **record** (local record cho intermediate).
+- [ ] Không gọi overridable từ ctor; nếu base legacy gọi hook → init field trong prologue (**JEP 513** / Java 25).
+- [ ] Encapsulation: fields `private`; nested helper → **static nested** trừ khi thật sự cần outer instance.
+- [ ] Override `equals` ⇒ override `hashCode`; class value nên `final`/record; document `compareTo` nếu khác `equals` (Money, BigDecimal).
+- [ ] Key của `HashMap`/`HashSet` bất biến; dùng `EnumSet`/`EnumMap` khi key/universe là enum.
+- [ ] Prefer immutability (`final` fields, records) để đơn giản hóa concurrency — [threading.md](threading.md).
+- [ ] `@Override` luôn khi ghi đè; switch trên sealed/enum tận dụng exhaustiveness.
+- [ ] Tránh `clone`/`finalize`; monitor `wait`/`notify` chỉ khi biết rõ — còn lại `java.util.concurrent`.
+
+---
+
+*Tham chiếu Java 25 LTS — Flexible Constructor Bodies: [JEP 513](https://openjdk.org/jeps/513); Compact Object Headers: [JEP 519](https://openjdk.org/jeps/519).*

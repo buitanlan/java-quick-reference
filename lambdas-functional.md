@@ -1,8 +1,11 @@
 # Lambda & Functional interface trong Java
 
-Tài liệu tham khảo **lambda**, **functional interfaces**, **method references**, và mối liên hệ với `Comparator` / `Optional` trên **Java 25 LTS**.
+Tài liệu tham khảo **lambda**, **functional interfaces**, **method references**, capture / effectively final,
+checked exceptions trong lambda, và mối liên hệ với `Comparator` / `Optional` trên **Java 25 LTS**.
 
-> Đọc thêm: `methods.md` (method references tổng quan), `statements.md` (effectively final), API Stream (ngoài phạm vi file này nhưng dùng chung functional style).
+> Cross-link: [methods.md](methods.md) · [statements.md](statements.md) (effectively final) · [streams.md](streams.md) ·
+> [collections-generics.md](collections-generics.md) · [exceptions.md](exceptions.md) · [keywords.md](keywords.md) ·
+> [java25.md](java25.md)
 
 ---
 
@@ -15,19 +18,22 @@ Tài liệu tham khảo **lambda**, **functional interfaces**, **method referenc
 5. [Functional interfaces dựng sẵn](#5-functional-interfaces-dựng-sẵn)
 6. [Tự viết `@FunctionalInterface`](#6-tự-viết-functionalinterface)
 7. [Method references `::`](#7-method-references-)
-8. [`Comparator` & sắp xếp](#8-comparator--sắp-xếp)
-9. [Liên hệ với `Optional`](#9-liên-hệ-với-optional)
-10. [Khác biệt ngắn với C# delegates](#10-khác-biệt-ngắn-với-c-delegates)
-11. [Hiệu năng & best practices](#11-hiệu-năng--best-practices)
-12. [Cheat sheet](#12-cheat-sheet)
+8. [Checked exceptions trong lambda](#8-checked-exceptions-trong-lambda)
+9. [`Comparator` & sắp xếp](#9-comparator--sắp-xếp)
+10. [Liên hệ với `Optional`](#10-liên-hệ-với-optional)
+11. [Khác biệt ngắn với C# delegates](#11-khác-biệt-ngắn-với-c-delegates)
+12. [Pitfalls (Bẫy)](#12-pitfalls-bẫy)
+13. [Best practices](#13-best-practices)
+14. [Cheat sheet](#14-cheat-sheet)
+15. [Xem thêm](#xem-thêm)
 
 ---
 
 ## 1. Lambda là gì?
 
-- Biểu thức tạo **instance của functional interface** (đúng một method abstract).
+- Biểu thức tạo **instance của functional interface** (đúng một method abstract — SAM).
 - Thay anonymous class dài dòng cho callback, `Stream`, `CompletableFuture`, listener…
-- Không phải kiểu first-class “function” độc lập như một số ngôn ngữ — luôn có **target type**.
+- Không phải kiểu first-class “function” độc lập — luôn có **target type**.
 
 ```java
 Runnable r = () -> System.out.println("hi");
@@ -39,21 +45,16 @@ r.run();
 ## 2. Cú pháp lambda
 
 ```java
-// Không tham số
 () -> System.out.println("go")
 
-// Một tham số — có thể bỏ ()
 x -> x * x
 (x) -> x * x
 
-// Nhiều tham số
 (a, b) -> a + b
 
-// Có kiểu tường minh / var (Java 11+)
 (String s) -> s.length()
-(var s) -> s.length()
+(var s) -> s.length() // Java 11+
 
-// Block body
 (s) -> {
     System.out.println(s);
     return s.length();
@@ -63,9 +64,11 @@ x -> x * x
 | Dạng thân | Quy tắc return |
 |-----------|----------------|
 | Expression body | Giá trị expression được return (trừ target `void`) |
-| Block body | Dùng `return` tường minh nếu non-void; có thể `throw` |
+| Block body | `return` tường minh nếu non-void; có thể `throw` |
 
-Không có `async` lambda built-in như C#. Bất đồng bộ dùng `CompletableFuture`, virtual threads + blocking, hoặc structured concurrency APIs tùy phiên bản/JDK.
+Unnamed param (22+): `(_, y) -> y + 1` — [keywords.md](keywords.md).
+
+Không có `async` lambda built-in. Bất đồng bộ: `CompletableFuture`, virtual threads + blocking, structured concurrency — [async.md](async.md) · [threading.md](threading.md).
 
 ---
 
@@ -83,16 +86,16 @@ Function<String, Integer> f = String::length;
 Predicate<String> p = s -> !s.isBlank();
 ```
 
-- Overload method nhận nhiều functional types khác nhau → đôi khi cần **cast** target:
+- Overload nhận nhiều functional types → đôi khi cần **cast** target:
 
 ```java
 method((Function<String, String>) s -> s.trim());
 ```
 
-- Lambda **không** có kiểu tự nhiên độc lập để gán `var` trong mọi trường hợp như C# 10 natural type — thường cần target rõ:
+- Lambda **không** suy được với `var` thiếu target:
 
 ```java
-// var x = s -> s.length(); // lỗi — không suy được
+// var x = s -> s.length(); // lỗi
 Function<String, Integer> x = s -> s.length();
 ```
 
@@ -100,17 +103,39 @@ Function<String, Integer> x = s -> s.length();
 
 ## 4. Effectively final & capture
 
-Lambda chỉ capture biến local nếu **final** hoặc **effectively final** (không gán lại sau khi khởi tạo).
+Lambda chỉ capture biến local nếu **final** hoặc **effectively final** (không gán lại sau khởi tạo).
 
 ```java
 int factor = 2;
 Function<Integer, Integer> mul = n -> n * factor; // OK
 
-// factor = 3; // nếu bỏ comment → lỗi compile với lambda ở trên
+// factor = 3; // lỗi compile — không còn effectively final
 ```
 
-- Capture instance field qua `this` — cẩn thận leak vòng đời (listener giữ object).
-- Không expect “ref cell” như biến mutable từ ngoài; dùng array một phần tử / `AtomicInteger` khi thật sự cần (thường là smell).
+### 4.1 Quy tắc capture
+
+| Capture | Hợp lệ? | Ghi chú |
+|---------|---------|---------|
+| Local / param effectively final | Có | Copy giá trị vào closure |
+| Local bị gán lại | Không | Compile error |
+| Instance field (`this.f`) | Có | Đọc qua `this` — field có thể đổi; lambda giữ reference `this` |
+| `this` / `Outer.this` | Có | Anonymous/lambda trong instance method |
+| Static field | Có | Qua tên class / implicit |
+
+### 4.2 Pitfalls capture
+
+1. **Muốn “đếm” bằng `int c++` trong lambda** — không được; dùng `AtomicInteger` / mảng 1 phần tử (smell) / redesign.
+2. **Listener giữ `this`** — lambda/instance method ref → object không GC được nếu listener registry sống dài.
+3. **Capture object lớn** — closure giữ reference → heap / lifecycle bất ngờ.
+4. **Nhầm field với local** — gán lại **field** OK về effectively final local; race nếu multi-thread không sync.
+5. **Loop biến** (pre-Java “classic bug” với anonymous class) — với lambda, biến vòng phải effectively final mỗi lần; `for (int i…)` không capture `i` nếu `i++` — dùng biến local copy trong thân vòng:
+
+```java
+for (int i = 0; i < n; i++) {
+    int index = i; // effectively final
+    exec.submit(() -> process(index));
+}
+```
 
 ```java
 var sum = new AtomicInteger();
@@ -121,21 +146,21 @@ list.forEach(n -> sum.addAndGet(n));
 
 ## 5. Functional interfaces dựng sẵn
 
-Package `java.util.function` — hay dùng nhất:
+Package `java.util.function`:
 
 | Interface | Method abstract | Ý nghĩa |
 |-----------|-----------------|--------|
 | `Supplier<T>` | `T get()` | Cung cấp giá trị |
 | `Consumer<T>` | `void accept(T)` | Tiêu thụ |
-| `BiConsumer<T,U>` | `void accept(T,U)` | Tiêu thụ 2 args |
+| `BiConsumer<T,U>` | `void accept(T,U)` | |
 | `Predicate<T>` | `boolean test(T)` | Điều kiện |
 | `BiPredicate<T,U>` | `boolean test(T,U)` | |
 | `Function<T,R>` | `R apply(T)` | Ánh xạ |
 | `BiFunction<T,U,R>` | `R apply(T,U)` | |
 | `UnaryOperator<T>` | `T apply(T)` | `Function<T,T>` |
-| `BinaryOperator<T>` | `T apply(T,T)` | `BiFunction<T,T,T>` |
+| `BinaryOperator<T>` | `T apply(T,T)` | |
 
-Biến thể primitive (tránh boxing): `IntSupplier`, `LongPredicate`, `ObjIntConsumer`, `ToIntFunction`, …
+Primitive specialized (tránh boxing): `IntSupplier`, `LongPredicate`, `ObjIntConsumer`, `ToIntFunction`, …
 
 ```java
 Predicate<String> nonEmpty = s -> s != null && !s.isEmpty();
@@ -143,18 +168,13 @@ Function<String, Integer> len = String::length;
 UnaryOperator<String> trim = String::trim;
 Supplier<Instant> now = Instant::now;
 Consumer<String> log = System.out::println;
-
 BinaryOperator<Integer> max = Integer::max;
-```
 
-**Composition** có sẵn:
-
-```java
 Predicate<String> p = nonEmpty.and(s -> s.length() > 3).negate();
 Function<String, String> pipe = trim.andThen(String::toUpperCase);
 ```
 
-`Runnable` / `Callable<V>` cũng là functional interfaces (package khác).
+`Runnable` / `Callable<V>` cũng là functional interfaces (`Callable` khai báo `throws Exception` — hữu ích với checked).
 
 ---
 
@@ -178,8 +198,8 @@ Transformer square = x -> x * x;
 int y = square.andThen(x -> x + 1).transform(3); // 10
 ```
 
-- Annotation **không bắt buộc** nhưng giúp compiler báo nếu vô tình thêm abstract method thứ hai.
-- Được phép có nhiều `default`/`static`/`private` methods.
+- Annotation không bắt buộc nhưng giúp compiler bắt abstract method thứ hai.
+- Được phép nhiều `default` / `static` / `private` methods.
 
 ---
 
@@ -188,105 +208,57 @@ int y = square.andThen(x -> x + 1).transform(3); // 10
 ### 7.1 Bốn dạng
 
 ```java
-// 1) Static
-Function<String, Integer> parse = Integer::parseInt;
-
-// 2) Bound instance
-var printer = System.out;
-Consumer<String> c = printer::println;
-
-// 3) Unbound instance — tham số đầu là receiver
-Function<String, Integer> len = String::length;
-BiPredicate<String, String> eq = String::equals;
-
-// 4) Constructor / array
-Supplier<List<String>> lists = ArrayList::new;
-Function<Integer, int[]> arr = int[]::new;
-Function<String, User> ctor = User::new; // User(String)
+Function<String, Integer> parse = Integer::parseInt;          // static
+Consumer<String> c = System.out::println;                     // bound instance
+Function<String, Integer> len = String::length;               // unbound instance
+BiPredicate<String, String> eq = String::equals;              // unbound — receiver là arg đầu
+Supplier<List<String>> lists = ArrayList::new;                // ctor
+Function<Integer, int[]> arr = int[]::new;                    // array ctor
+Function<String, User> ctor = User::new;                      // User(String)
 ```
 
-### 7.2 Khi nào chọn `::` thay lambda?
+### 7.2 Khi nào `::` thay lambda?
 
 - Body chỉ ủy quyền một method → `::` ngắn và rõ.
-- Cần adapt nhẹ (đổi thứ tự, null-check) → giữ lambda.
+- Cần adapt (null-check, đổi thứ tự, bắt exception) → giữ lambda.
 
 ```java
-// rõ
 list.stream().map(String::trim);
-
-// cần logic → lambda
 list.stream().map(s -> s == null ? "" : s.trim());
 ```
 
----
+### 7.3 Edge cases method reference
 
-## 8. `Comparator` & sắp xếp
-
-`Comparator<T>` là functional interface (`compare(T,T)`).
+| Bẫy | Chi tiết |
+|-----|----------|
+| Ambiguous overload | `Type::method` khớp nhiều overload → lỗi; cast target hoặc lambda tường minh |
+| Bound vs unbound | `str::equals` vs `String::equals` — arity / receiver khác |
+| Generic ctor / diamond | Đôi khi cần `<T>Type::new` hoặc target type rõ |
+| `this::method` / `super::method` | Giữ `this`; `super::` gọi phiên bản superclass |
+| Checked exception | Method ref tới method `throws` checked **không** khớp SAM không khai báo checked (giống lambda) |
+| Varargs method | Adapt arity có thể bất ngờ — kiểm tra overload resolution |
+| `Objects::nonNull` vs `x -> x != null` | OK; cẩn `filter(Objects::nonNull)` trên stream nullable |
 
 ```java
-List<User> users = ...;
-
-users.sort(Comparator.comparing(User::name));
-users.sort(Comparator.comparingInt(User::age).reversed());
-users.sort(
-    Comparator.comparing(User::department)
-              .thenComparing(User::name)
-);
-
-Comparator<String> byLen = Comparator.comparingInt(String::length);
-Comparator<String> nullsLast = Comparator.nullsLast(String::compareToIgnoreCase);
+// Ambiguous — Integer có nhiều valueOf
+// Function<String, Integer> f = Integer::valueOf; // có thể lỗi tùy ngữ cảnh
+Function<String, Integer> f = Integer::parseInt; // rõ hơn nếu chỉ cần String→int
 ```
 
-`Comparable` = thứ tự tự nhiên trên chính type; `Comparator` = chiến lược bên ngoài — hay kết hợp method reference.
-
----
-
-## 9. Liên hệ với `Optional`
-
-`Optional` dùng functional style để tránh `null` phân tán (không thay mọi null).
-
 ```java
-Optional<User> user = find(id);
-
-user.ifPresent(u -> System.out.println(u.name()));
-String label = user.map(User::name).orElse("unknown");
-User u = user.filter(User::active).orElseThrow();
-
-optional.or(() -> Optional.of(defaultUser()));
+list.stream().filter(Objects::nonNull).map(String::toUpperCase);
 ```
 
-- Prefer `map` / `flatMap` / `filter` / `orElse` / `orElseGet` / `orElseThrow`.
-- `orElse(expensive())` **luôn** đánh giá đối số — dùng `orElseGet(Supplier)` khi tạo đắt.
-- Không dùng `Optional` làm field / parameter trừ khi API thật sự “có thể vắng” và team thống nhất.
-
 ---
 
-## 10. Khác biệt ngắn với C# delegates
+## 8. Checked exceptions trong lambda
 
-| | Java | C# |
-|--|------|-----|
-| Đơn vị | Functional **interface** (SAM) | **Delegate** type |
-| Đa cast | Một abstract method | Multicast `+=` / invocation list |
-| Dựng sẵn | `Function`/`Predicate`/`Consumer`… | `Func`/`Action`/`Predicate` |
-| Method group | `Type::method` | Method group → delegate |
-| Event | Listener / reactive libs | `event` + delegate |
-
-Java không có multicast delegate tích hợp — dùng danh sách listener hoặc `Consumer` composition thủ công nếu cần nhiều handler.
-
----
-
-## 11. Hiệu năng & best practices
-
-1. Lambda ngắn; logic dài → method riêng + `this::helper`.
-2. Tránh capture nặng / circular reference với listener dài hạn.
-3. Hot path: cân nhắc primitive specialized (`IntPredicate`…) để giảm boxing.
-4. Đừng sợ lambda trên virtual threads — chi phí chính thường là I/O, không phải syntax.
-5. Exception checked trong lambda: functional interfaces chuẩn **không** khai báo checked — bọc unchecked hoặc dùng helper / thư viện (`ThrowingFunction` tự viết).
-6. `Stream` + lambda: nhớ terminal operation; tránh side-effect khó đoán trong `map`.
+Hầu hết SAM trong `java.util.function` (**không** khai báo checked). Lambda/`::` gọi method `throws IOException` → **lỗi compile** trừ khi bắt trong body.
 
 ```java
-// Checked exception trong lambda — pattern bọc
+// Không compile nếu Files.readAllBytes throws IOException chưa bắt
+// Function<String, byte[]> bad = path -> Files.readAllBytes(Path.of(path));
+
 Function<String, byte[]> readAll = path -> {
     try {
         return Files.readAllBytes(Path.of(path));
@@ -296,9 +268,120 @@ Function<String, byte[]> readAll = path -> {
 };
 ```
 
+| Chiến lược | Khi nào |
+|------------|---------|
+| Bọc `UncheckedIOException` / domain unchecked | Stream / `Function` / API functional chuẩn |
+| SAM tự viết `throws E` | API riêng — caller phải handle |
+| `Callable` / `Throwing*` helper | Có `throws Exception` sẵn hoặc thư viện nội bộ |
+| Không nuốt empty catch | Luôn giữ cause — [exceptions.md](exceptions.md) |
+
+```java
+@FunctionalInterface
+interface ThrowingFunction<T, R> {
+    R apply(T t) throws Exception;
+}
+
+static <T, R> Function<T, R> unchecked(ThrowingFunction<T, R> f) {
+    return t -> {
+        try {
+            return f.apply(t);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    };
+}
+```
+
 ---
 
-## 12. Cheat sheet
+## 9. `Comparator` & sắp xếp
+
+```java
+users.sort(Comparator.comparing(User::name));
+users.sort(Comparator.comparingInt(User::age).reversed());
+users.sort(
+    Comparator.comparing(User::department)
+              .thenComparing(User::name)
+);
+
+Comparator<String> nullsLast = Comparator.nullsLast(String::compareToIgnoreCase);
+```
+
+`Comparable` = thứ tự tự nhiên; `Comparator` = chiến lược ngoài — hay kết hợp method reference.
+Tránh `(a,b) -> a.size() - b.size()` (overflow) — dùng `Integer.compare` / `comparingInt`.
+
+---
+
+## 10. Liên hệ với `Optional`
+
+```java
+Optional<User> user = find(id);
+
+user.ifPresent(u -> System.out.println(u.name()));
+String label = user.map(User::name).orElse("unknown");
+User u = user.filter(User::active).orElseThrow();
+optional.or(() -> Optional.of(defaultUser()));
+```
+
+- Prefer `map` / `flatMap` / `filter` / `orElse` / `orElseGet` / `orElseThrow`.
+- `orElse(expensive())` **luôn** đánh giá đối số — dùng `orElseGet(Supplier)`.
+- Không dùng `Optional` làm field / parameter trừ khi team thống nhất.
+
+---
+
+## 11. Khác biệt ngắn với C# delegates
+
+| | Java | C# |
+|--|------|-----|
+| Đơn vị | Functional **interface** (SAM) | **Delegate** type |
+| Đa cast | Một abstract method | Multicast `+=` |
+| Dựng sẵn | `Function`/`Predicate`/`Consumer`… | `Func`/`Action` |
+| Method group | `Type::method` | Method group → delegate |
+| Event | Listener / reactive libs | `event` + delegate |
+
+Java không có multicast delegate tích hợp — danh sách listener hoặc composition `Consumer` thủ công.
+
+---
+
+## 12. Pitfalls (Bẫy)
+
+1. **Gán lại local sau khi capture** — mất effectively final.
+2. **Capture `this` trong listener dài hạn** — memory leak.
+3. **Checked trong `map`/`forEach`** — phải bọc unchecked hoặc helper.
+4. **Method ref ambiguous overload** — compile error khó đọc.
+5. **`orElse(expensive())`** — luôn tạo object; dùng `orElseGet`.
+6. **Side-effect trong `Stream.map`** — khó đoán; side-effect → `forEach` / phương thức rõ tên.
+7. **`var` + lambda** không target — lỗi suy kiểu.
+8. **Trừ độ dài trong `Comparator`** — overflow `int`; dùng `comparingInt`.
+9. **Nhầm bound/unbound `::`** — sai arity.
+10. **Empty catch trong lambda** — nuốt I/O lỗi — [exceptions.md](exceptions.md).
+
+---
+
+## 13. Best practices
+
+1. Lambda ngắn; logic dài → method riêng + `this::helper`.
+2. Tránh capture nặng / circular reference với listener dài hạn.
+3. Hot path: primitive specialized (`IntPredicate`…) giảm boxing.
+4. Đừng sợ lambda trên virtual threads — chi phí chính thường là I/O.
+5. Checked: bọc có cause hoặc SAM `throws` có chủ đích — không empty catch.
+6. `Stream` + lambda: nhớ terminal operation; tránh side-effect trong `map`.
+7. Prefer `::` khi ủy quyền thuần; giữ lambda khi cần adapt.
+8. Unnamed `_` (22+) cho param bỏ qua.
+
+```text
+□ effectively final rõ; không “ref cell” trừ Atomic*
+□ checked → UncheckedIOException / helper
+□ Comparator: comparingInt / Integer.compare
+□ orElseGet khi tạo đắt
+□ method ref không ambiguous
+```
+
+---
+
+## 14. Cheat sheet
 
 ```java
 import java.util.*;
@@ -334,3 +417,21 @@ public class LambdaCheatSheet {
     }
 }
 ```
+
+---
+
+## Xem thêm
+
+| File | Liên quan |
+|------|-----------|
+| [methods.md](methods.md) | Method refs, overload |
+| [statements.md](statements.md) | Effectively final, blocks |
+| [streams.md](streams.md) | Pipeline functional |
+| [exceptions.md](exceptions.md) | Wrap checked / cause |
+| [collections-generics.md](collections-generics.md) | `removeIf`, sort |
+| [async.md](async.md) | `CompletableFuture` + lambda |
+| [java25.md](java25.md) | LTS notes |
+
+---
+
+*Tham chiếu nhanh — Java 25 LTS. Lambda/method ref từ 8; `var` trong lambda params từ 11; unnamed `_` từ 22.*

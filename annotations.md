@@ -3,7 +3,11 @@
 Annotation là cơ chế **metadata** của Java — gắn thông tin vào khai báo (hoặc từ Java 8, cả type use) để compiler,
 tooling, framework và runtime phản ứng. Đây là analogue gần nhất với “preprocessor/metadata attributes” của C#
 (`[Obsolete]`, `[Serializable]`, …), nhưng Java annotation **không** điều khiển `#if` biên dịch có điều kiện;
-chúng mang dữ liệu có cấu trúc, xử lý bởi compiler plugins (APT) hoặc reflection.
+chúng mang dữ liệu có cấu trúc, xử lý bởi compiler plugins (APT) hoặc reflection. Tài liệu nhắm **Java 25 LTS**.
+
+> Cross-link: [methods.md](methods.md) (`@Override`, `@SafeVarargs`) · [oop.md](oop.md) (records / components) ·
+> [lambdas-functional.md](lambdas-functional.md) (`@FunctionalInterface`) · [keywords.md](keywords.md) ·
+> [java25.md](java25.md)
 
 ---
 
@@ -29,7 +33,8 @@ chúng mang dữ liệu có cấu trúc, xử lý bởi compiler plugins (APT) h
   - [6. Đọc annotation lúc runtime](#6-đọc-annotation-lúc-runtime)
   - [7. Annotation processor (APT) — overview](#7-annotation-processor-apt--overview)
   - [8. Custom annotation — mẫu thực tế](#8-custom-annotation--mẫu-thực-tế)
-  - [9. Best practices](#9-best-practices)
+  - [9. Pitfalls (Bẫy)](#9-pitfalls-bẫy)
+  - [10. Best practices](#10-best-practices)
 
 ---
 
@@ -373,7 +378,17 @@ Quét classpath/module path + đọc annotation = nền tảng của micro-frame
 
 ---
 
-## 9. Best practices
+## 9. Pitfalls (Bẫy)
+
+1. **Sai `@Retention`** — mặc định là `CLASS`; reflection/`getAnnotation` trả `null` nếu cần `RUNTIME` mà quên khai báo. Ngược lại: giữ `RUNTIME` cho metadata chỉ phục vụ APT → phình class file vô ích.
+2. **Quên `@Override`** — typo / overload nhầm thành method mới; compiler không báo. Luôn gắn khi cố ý override/implement — [methods.md](methods.md).
+3. **`@Repeatable` thiếu container** — phải có annotation container (`@Tags` chứa `Tag[] value()`) cùng retention/target phù hợp; đọc runtime dùng `getAnnotationsByType`, không chỉ `getAnnotation` (chỉ thấy container khi đã gộp).
+4. **`@Inherited` chỉ trên class** — không “kế thừa” xuống method/field; interface cũng không theo nghĩa meta này.
+5. **Nhầm declaration vs type-use** — thiếu `ElementType.TYPE_USE` thì không gắn được trên `List<@NonNull String>`.
+
+---
+
+## 10. Best practices
 
 - Luôn chỉ định `@Retention` và `@Target` tường minh.
 - Đặt tên annotation theo vai trò (`@Inject`, `@Route`), không theo cơ chế (`@MyAnnotation1`).
@@ -391,3 +406,7 @@ public record User(
 
 - Nullness: hướng tới chuẩn cộng đồng (JSpecify) thay vì tự tạo `@NonNull` lệch semantics.
 - Tránh “annotation hell”: nếu mọi dòng đều có 5 annotation, thiết kế API/framework đang leak vào domain.
+
+---
+
+*Tham chiếu nhanh — Java 25 LTS. Meta-annotations & APT ổn định từ lâu; `RECORD_COMPONENT` từ 16.*

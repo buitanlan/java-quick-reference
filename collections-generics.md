@@ -1,35 +1,33 @@
-# Tập hợp & Generics  
+# Tập hợp & Generics
 
 *(Collection hierarchy, List/Set/Map/Deque, generics, Sequenced Collections)*
 
-Java Collections Framework (`java.util`) là nền tảng xử lý dữ liệu in-memory. Generics (từ Java 5) mang type-safety compile-time; erasure giữ tương thích bytecode.
+Java Collections Framework (`java.util`) là nền tảng xử lý dữ liệu in-memory. Generics (từ Java 5) mang
+type-safety compile-time; erasure giữ tương thích bytecode. Tài liệu nhắm **Java 25 LTS** (Sequenced Collections
+ổn định từ 21).
+
+> Cross-link: [typesystem.md](typesystem.md) (PECS / erasure tổng quát) · [streams.md](streams.md) ·
+> [oop.md](oop.md) (`equals`/`hashCode`) · [threading.md](threading.md) · [lambdas-functional.md](lambdas-functional.md) ·
+> [java25.md](java25.md)
 
 ---
 
 ## Mục lục
 
-- [Tập hợp \& Generics](#tập-hợp--generics)
-  - [Mục lục](#mục-lục)
-  - [1. Hierarchy Collection / Map](#1-hierarchy-collection--map)
-  - [2. List](#2-list)
-    - [2.1 `ArrayList`](#21-arraylist)
-    - [2.2 `LinkedList`](#22-linkedlist)
-  - [3. Set](#3-set)
-  - [4. Deque / Queue / Stack](#4-deque--queue--stack)
-  - [5. Map](#5-map)
-    - [5.1 `HashMap`](#51-hashmap)
-    - [5.2 `ConcurrentHashMap`](#52-concurrenthashmap)
-    - [5.3 Các Map khác](#53-các-map-khác)
-  - [6. Sequenced Collections (Java 21+)](#6-sequenced-collections-java-21)
-  - [7. Unmodifiable factories](#7-unmodifiable-factories)
-  - [8. Generics](#8-generics)
-    - [8.1 Type parameters \& bounds](#81-type-parameters--bounds)
-    - [8.2 Wildcards \& PECS](#82-wildcards--pecs)
-    - [8.3 Erasure](#83-erasure)
-    - [8.4 Diamond \& `var` caveats](#84-diamond--var-caveats)
-  - [9. Duyệt \& tiện ích](#9-duyệt--tiện-ích)
-  - [10. Cheat sheet chọn cấu trúc](#10-cheat-sheet-chọn-cấu-trúc)
-  - [11. Best practices](#11-best-practices)
+- [1. Hierarchy Collection / Map](#1-hierarchy-collection--map)
+- [2. List](#2-list)
+- [3. Set](#3-set)
+- [4. Deque / Queue / Stack](#4-deque--queue--stack)
+- [5. Map](#5-map)
+- [6. Sequenced Collections (Java 21+)](#6-sequenced-collections-java-21)
+- [7. Unmodifiable vs immutable](#7-unmodifiable-vs-immutable)
+- [8. Concurrent collections & fail-fast CME](#8-concurrent-collections--fail-fast-cme)
+- [9. Generics](#9-generics)
+- [10. Duyệt & tiện ích](#10-duyệt--tiện-ích)
+- [11. Cheat sheet chọn cấu trúc](#11-cheat-sheet-chọn-cấu-trúc)
+- [12. Pitfalls (Bẫy)](#12-pitfalls-bẫy)
+- [13. Best practices](#13-best-practices)
+- [Xem thêm](#xem-thêm)
 
 ---
 
@@ -228,10 +226,10 @@ map.pollFirstEntry();
 
 ---
 
-## 7. Unmodifiable factories
+## 7. Unmodifiable vs immutable
 
 ```java
-List<String> list = List.of("a", "b");           // không null, immutable
+List<String> list = List.of("a", "b");           // không null, structural immutable
 Set<Integer> set  = Set.of(1, 2, 3);             // không trùng, không null
 Map<String, Integer> map = Map.of("a", 1, "b", 2);
 Map<String, Integer> map2 = Map.ofEntries(
@@ -239,26 +237,99 @@ Map<String, Integer> map2 = Map.ofEntries(
         Map.entry("b", 2)
 );
 
-List<String> copy = List.copyOf(someCollection); // copy unmodifiable
+List<String> copy = List.copyOf(someCollection); // copy unmodifiable độc lập
 var um = Collections.unmodifiableList(mutable);  // view — nguồn đổi thì view đổi
 ```
 
-- `List.of` / `Set.of` / `Map.of`: **structural immutable** — `add`/`put` → `UnsupportedOperationException`.
-- Không chấp nhận `null` (NPE).
-- `Set.of` với phần tử trùng → `IllegalArgumentException`.
-- Khác `Collections.unmodifiableX`: factory tạo bản độc lập (copyOf) hoặc compact immutable; unmodifiable\* thường là wrapper.
+| Khái niệm | Ý nghĩa | API điển hình |
+|-----------|---------|---------------|
+| **Unmodifiable view** | Wrapper chặn `add`/`remove`; **không** copy — nguồn mutable vẫn đổi nội dung nhìn thấy qua view | `Collections.unmodifiableList` |
+| **Unmodifiable copy** | Snapshot cấu trúc; sửa nguồn gốc không ảnh hưởng bản copy | `List.copyOf`, `Set.copyOf`, `Map.copyOf` |
+| **Structural immutable** | Không thao tác cấu trúc; phần tử nếu mutable vẫn đổi được state | `List.of` / `Set.of` / `Map.of` |
+| **Deep immutable** | Cả cấu trúc lẫn phần tử không đổi — **không** có sẵn trong JCF; tự thiết kế (record + immutable elems) | — |
+
+```java
+List<StringBuilder> of = List.of(new StringBuilder("a"));
+of.get(0).append("!"); // OK — list không cho add, nhưng elem mutable
+// of.add(...); → UnsupportedOperationException
+
+List<String> src = new ArrayList<>(List.of("x"));
+List<String> view = Collections.unmodifiableList(src);
+src.add("y");
+view.size(); // 2 — view thấy thay đổi nguồn
+```
+
+- `List.of` / `Set.of` / `Map.of`: không `null`; `Set.of` trùng phần tử → `IllegalArgumentException`.
+- `Collections.emptyList()` / `singletonList` / `nCopies` — cố định kích thước theo hợp đồng từng API.
+- Trả collection ra ngoài API: prefer `List.copyOf` / `Map.copyOf` hơn expose field mutable hoặc chỉ unmodifiable view nếu nguồn vẫn giữ quyền ghi.
 
 ```java
 Collections.emptyList();
 Collections.singletonList(x);
-Collections.nCopies(3, "x"); // list cố định kích thước, phần tử giống nhau
+Collections.nCopies(3, "x");
 ```
 
 ---
 
-## 8. Generics
+## 8. Concurrent collections & fail-fast CME
 
-### 8.1 Type parameters & bounds
+### 8.1 Fail-fast & `ConcurrentModificationException`
+
+Iterator của `ArrayList` / `HashMap` / … là **fail-fast**: nếu cấu trúc collection bị sửa ngoài iterator (add/remove từ cùng thread hoặc thread khác) trong lúc duyệt → có thể ném `ConcurrentModificationException` (best-effort, không phải lock).
+
+```java
+List<String> list = new ArrayList<>(List.of("a", "b", "c"));
+
+// Sai — CME (thường)
+for (String s : list) {
+    if (s.equals("b")) list.remove(s);
+}
+
+// Đúng — Iterator.remove
+for (var it = list.iterator(); it.hasNext(); ) {
+    if (it.next().equals("b")) it.remove();
+}
+
+list.removeIf(s -> s.equals("b")); // API an toàn
+```
+
+| Cách | An toàn khi duyệt + xóa? |
+|------|--------------------------|
+| Enhanced-for + `list.remove` | Không (CME) |
+| `Iterator.remove` | Có (cùng iterator) |
+| `removeIf` / `entrySet().removeIf` | Có |
+| Index loop `for (i…)` + `remove(i)` | Cẩn thận index lệch; được phép nhưng dễ bug |
+| Concurrent collection iterator | weakly consistent — **không** CME vì structural mod thông thường |
+
+### 8.2 Concurrent collections (tóm tắt)
+
+| Loại | Class | Ghi chú |
+|------|-------|---------|
+| Map | `ConcurrentHashMap` | Không `null`; atomic `compute*` / `merge`; không khóa toàn map cho hầu hết ops |
+| Queue | `ConcurrentLinkedQueue` | Non-blocking |
+| Blocking queue | `LinkedBlockingQueue`, `ArrayBlockingQueue`, `DelayQueue` | Producer/consumer |
+| List (COW) | `CopyOnWriteArrayList` | Nhiều đọc, ít ghi — ghi copy toàn mảng |
+| Set (COW) | `CopyOnWriteArraySet` | Tương tự |
+| Legacy sync wrapper | `Collections.synchronizedMap` | Vẫn cần sync khi **iterate** |
+
+```java
+ConcurrentHashMap<String, LongAdder> hits = new ConcurrentHashMap<>();
+hits.computeIfAbsent("home", k -> new LongAdder()).increment();
+// tránh get → modify → put rời rạc
+
+CopyOnWriteArrayList<String> listeners = new CopyOnWriteArrayList<>();
+listeners.add("a");
+for (String s : listeners) { /* snapshot iterator — không CME khi add song song */ }
+```
+
+- `synchronizedMap`: `for (var e : map.entrySet())` vẫn cần `synchronized (map) { … }` khi iterate.
+- Chi tiết threading: [threading.md](threading.md). `ConcurrentHashMap` đã nêu ở §5.2.
+
+---
+
+## 9. Generics
+
+### 9.1 Type parameters & bounds
 
 ```java
 public class Box<T> {
@@ -276,13 +347,12 @@ public static <T extends Comparable<? super T>> T max(Collection<? extends T> co
 }
 ```
 
-- Bound: `T extends Type` (upper), nhiều bound: `T extends A & B` (class đứng trước interface).
-- Generic methods: `<T>` trước return type.
-- Không có primitive type args — dùng wrapper (`List<Integer>`). (Preview primitive patterns / valhalla là hướng khác, không thay generics erasure hiện tại.)
+- Bound: `T extends Type` (upper); nhiều bound: `T extends A & B` (class trước interface).
+- Không primitive type args — dùng wrapper (`List<Integer>`).
 
-### 8.2 Wildcards & PECS
+### 9.2 Wildcards & PECS (collections-focused)
 
-**PECS**: *Producer Extends, Consumer Super*.
+**PECS**: *Producer Extends, Consumer Super*. Lý thuyết kiểu: [typesystem.md §9.1](typesystem.md#91-pecs--wildcards). Dưới đây là ví dụ **API collection**.
 
 ```java
 // Producer: đọc ra — ? extends
@@ -290,7 +360,7 @@ void printAll(List<? extends Number> nums) {
     for (Number n : nums) {
         System.out.println(n);
     }
-    // nums.add(1); // illegal — không biết subtype cụ thể
+    // nums.add(1); // illegal
 }
 
 // Consumer: ghi vào — ? super
@@ -300,54 +370,73 @@ void addInts(List<? super Integer> dest) {
     // Integer x = dest.get(0); // chỉ chắc Object
 }
 
+// Copy — JDK làm tương tự Collections.copy
+public static <T> void copy(List<? super T> dest, List<? extends T> src) {
+    for (T t : src) {
+        dest.add(t);
+    }
+}
+
 List<Integer> ints = List.of(1, 2);
-printAll(ints);           // List<Integer> ⊂ List<? extends Number>
+printAll(ints);
 addInts(new ArrayList<Number>());
 addInts(new ArrayList<Object>());
+copy(new ArrayList<Number>(), ints);
 ```
 
-- `?` unbounded: chỉ an toàn như `Object` khi đọc; ghi gần như không.
-- Capture helper: đôi khi cần method generic riêng để “bắt” wildcard.
+| API nhận | Wildcard | Lý do |
+|----------|----------|-------|
+| Chỉ đọc phần tử | `Collection<? extends E>` / `List<? extends E>` | Chấp nhận `List<Integer>` khi cần `Number` |
+| Chỉ ghi phần tử | `Collection<? super E>` | Chấp nhận `List<Object>` khi add `Integer` |
+| Đọc + ghi cùng kiểu | `Collection<E>` / `List<E>` | Không wildcard |
+| Không quan tâm kiểu | `List<?>` | Gần như chỉ `size` / `clear` / đọc `Object` |
 
-### 8.3 Erasure
+```java
+// Capture helper — “bắt” wildcard khi cần generic method
+static void swapFirstTwo(List<?> list) {
+    swapHelper(list);
+}
+private static <T> void swapHelper(List<T> list) {
+    T tmp = list.get(0);
+    list.set(0, list.get(1));
+    list.set(1, tmp);
+}
+```
+
+- `?` unbounded: đọc như `Object`; ghi gần như không (trừ `null`).
+- Đừng dùng wildcard ở return type public trừ khi cố ý — caller khó dùng.
+
+### 9.3 Erasure
 
 ```java
 List<String> a = new ArrayList<>();
 List<Integer> b = new ArrayList<>();
-// a.getClass() == b.getClass()  → true (cùng ArrayList)
+// a.getClass() == b.getClass() → true
 
 @SuppressWarnings("unchecked")
 List raw = a; // raw type — tránh
 ```
 
-Hệ quả:
+- Không `new T()`, không `new T[]` trực tiếp.
+- Không overload chỉ khác type param.
+- Bridge methods: [methods.md](methods.md).
+- `instanceof List<String>` illegal — chỉ `instanceof List<?>`.
 
-- Không `new T()`, không `new T[]` trực tiếp (workaround: `Array.newInstance`, reflection, hoặc truyền `Class<T>` / factory).
-- Không overloading chỉ khác type param (`void m(List<String>)` vs `void m(List<Integer>)`).
-- Runtime checks dùng bridge methods / casts do compiler chèn.
-- `instanceof List<String>` **không** hợp lệ — chỉ `instanceof List<?>`.
-
-### 8.4 Diamond & `var` caveats
+### 9.4 Diamond & `var` caveats
 
 ```java
 List<String> list = new ArrayList<>();     // diamond <>
-var list2 = new ArrayList<String>();       // OK — rõ ràng
-var list3 = new ArrayList<>();             // suy ra ArrayList<Object> — thường KHÔNG mong muốn!
-var map = new HashMap<String, List<Integer>>(); // OK
+var list2 = new ArrayList<String>();       // OK
+var list3 = new ArrayList<>();             // ArrayList<Object> — thường sai ý!
 ```
-
-- Diamond (`<>`): suy type từ **target type** bên trái.
-- `var` + diamond không có target → dễ ra `Object`; hãy chỉ định type args hoặc tránh `var` lúc đó.
-- Anonymous class: historically hạn chế diamond; các bản Java hiện đại đã cải thiện nhưng vẫn cẩn thận với phức tạp.
 
 ---
 
-## 9. Duyệt & tiện ích
+## 10. Duyệt & tiện ích
 
 ```java
 List<String> list = new ArrayList<>(List.of("a", "b", "c"));
 
-// fail-fast iterator — ConcurrentModificationException nếu cấu trúc đổi ngoài iterator
 for (var it = list.iterator(); it.hasNext(); ) {
     if (it.next().equals("b")) it.remove();
 }
@@ -362,11 +451,11 @@ Collections.binarySearch(list, "B", String.CASE_INSENSITIVE_ORDER);
 
 - `Arrays.asList(...)`: **fixed-size** (backed by array) — `set` OK, `add` không.
 - `subList`: **view** — structural change nguồn có thể invalidate.
-- Stream: xem [streams.md](streams.md).
+- Stream: [streams.md](streams.md).
 
 ---
 
-## 10. Cheat sheet chọn cấu trúc
+## 11. Cheat sheet chọn cấu trúc
 
 | Nhu cầu | Chọn |
 |---------|------|
@@ -382,15 +471,59 @@ Collections.binarySearch(list, "B", String.CASE_INSENSITIVE_ORDER);
 
 ---
 
-## 11. Best practices
+## 12. Pitfalls (Bẫy)
+
+1. **Mutable key / phần tử trong `HashMap`/`HashSet`** — đổi field tham gia `equals`/`hashCode` sau khi insert → mất entry / trùng ảo.
+2. **Identity vs equals** — `IdentityHashMap` dùng `==`; `HashMap` dùng `equals`/`hashCode` — [oop.md](oop.md) · [typesystem.md](typesystem.md).
+3. **`compareTo` lệch `equals`** — `TreeMap`/`TreeSet` ordering ≠ hash equality → hành vi “trùng” khác nhau.
+4. **Unmodifiable view tưởng immutable** — nguồn vẫn đổi; elem mutable vẫn đổi.
+5. **CME khi for-each + remove** — dùng `Iterator.remove` / `removeIf`.
+6. **`synchronizedMap` iterate không sync** — race / CME.
+7. **`var` + `new ArrayList<>()`** → `ArrayList<Object>`.
+8. **`Arrays.asList` + `add`** → `UnsupportedOperationException`.
+9. **`null` key trên `ConcurrentHashMap` / `Hashtable`** — NPE; `HashMap` cho 1 null key.
+10. **Lộ collection mutable nội bộ** — caller `clear()` phá invariant — trả `copyOf`.
+
+```java
+record BadKey(StringBuilder id) { // mutable component — nguy hiểm làm key
+    @Override public boolean equals(Object o) { /* id content */ }
+    @Override public int hashCode() { return id.toString().hashCode(); }
+}
+```
+
+---
+
+## 13. Best practices
 
 - Program to interfaces: `List`, `Map`, `SequencedCollection`.
-- Đừng lộ collection mutable nội bộ — trả `List.copyOf` hoặc unmodifiable view.
-- Override đúng `equals`/`hashCode` cho phần tử/`key` dùng trong hash structures.
-- `Comparable` phải **consistent với equals** nếu dùng trong sorted sets/maps (khuyến nghị).
+- Đừng lộ collection mutable nội bộ — `List.copyOf` / unmodifiable khi phù hợp.
+- Override đúng `equals`/`hashCode` cho phần tử / key hash structures.
+- `Comparable` **consistent với equals** nếu dùng sorted + hash cùng domain.
 - Tránh raw types; bật lint unchecked.
-- Multi-thread: không “hy vọng” `Collections.synchronizedMap` đủ — cân nhắc concurrent collections + đúng atomic API.
-- Đo trước khi thay `ArrayList` bằng `LinkedList` — locality thường thắng lý thuyết big-O.
+- Multi-thread: concurrent collections + atomic API; đừng “hy vọng” sync wrapper đủ.
+- Đo trước khi thay `ArrayList` bằng `LinkedList` — locality thường thắng big-O lý thuyết.
+- PECS ở tham số API; tránh wildcard return trừ khi cần.
+
+```text
+□ key bất biến (hoặc không mutate sau put)
+□ copyOf / of khi publish API
+□ removeIf / Iterator.remove — không for-each remove
+□ ConcurrentHashMap: compute/merge, không null
+□ PECS: extends đọc, super ghi
+```
+
+---
+
+## Xem thêm
+
+| File | Liên quan |
+|------|-----------|
+| [typesystem.md](typesystem.md) | PECS, erasure, `==`/`equals` |
+| [oop.md](oop.md) | `equals` / `hashCode` / `Comparable` |
+| [streams.md](streams.md) | Pipeline trên collection |
+| [threading.md](threading.md) | Concurrent access |
+| [lambdas-functional.md](lambdas-functional.md) | `removeIf`, `Comparator` |
+| [methods.md](methods.md) | Generic methods, bridges |
 
 ---
 

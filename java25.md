@@ -2,9 +2,14 @@
 
 *(LTS — GA tháng 9/2025)*
 
-Java **25** là bản **Long-Term Support (LTS)** tiếp theo sau 21 và 17. Tài liệu này tóm tắt các **JEP** liên quan trực tiếp tới developer ngôn ngữ / API — không phải changelog toàn bộ JVM/ops.
+Java **25** là bản **Long-Term Support (LTS)** tiếp theo sau 21 và 17. Tài liệu này tóm tắt các **JEP** liên quan trực tiếp tới developer ngôn ngữ / API — không phải changelog toàn bộ JVM/ops — và đóng vai trò **hub** liên kết vào các file chuyên đề trong bộ tham chiếu.
 
 Trang dự án: [https://openjdk.org/projects/jdk/25/](https://openjdk.org/projects/jdk/25/)
+
+> Cross-link (hub → topical): [oop.md](oop.md) (JEP 513) · [packages-modules.md](packages-modules.md) (`import module`) ·
+> [main-function.md](main-function.md) (JEP 512) · [threading.md](threading.md) (Scoped Values / VT) ·
+> [async.md](async.md) (Structured Concurrency) · [streams.md](streams.md) (Gatherers) ·
+> [typesystem.md](typesystem.md) / [statements.md](statements.md) (patterns, preview JEP 507)
 
 ---
 
@@ -63,7 +68,7 @@ public class PositivePoint extends Point {
 }
 ```
 
-Chi tiết thực dụng: [oop.md](oop.md) §1.6.  
+Chi tiết thực dụng: [oop.md](oop.md) §1.6 · [methods.md](methods.md) (ctors).  
 JEP: [https://openjdk.org/jeps/513](https://openjdk.org/jeps/513)
 
 ### 2.2 JEP 506 — Scoped Values
@@ -76,7 +81,7 @@ private static final ScopedValue<User> USER = ScopedValue.newInstance();
 ScopedValue.where(USER, currentUser).run(() -> service.handle());
 ```
 
-Chi tiết: [threading.md](threading.md) §5.  
+Chi tiết: [threading.md](threading.md) §6.  
 JEP: [https://openjdk.org/jeps/506](https://openjdk.org/jeps/506)
 
 ### 2.3 JEP 511 — Module Import Declarations
@@ -93,13 +98,14 @@ import module java.sql;
 - Không thay `import` kiểu thông thường; bổ sung khi làm việc ở mức module.
 - Cần hiểu dualism classpath vs module path.
 
+Chi tiết: [packages-modules.md](packages-modules.md) §4.  
 JEP: [https://openjdk.org/jeps/511](https://openjdk.org/jeps/511)
 
 ### 2.4 JEP 512 — Compact Source Files & Instance Main Methods
 
 Đơn giản hóa chương trình nhỏ / học liệu:
 
-- **Compact source file**:省略 bắt buộc class bọc tường minh trong một số dạng chương trình ngắn.
+- **Compact source file**: bỏ bắt buộc class bọc tường minh trong một số dạng chương trình ngắn.
 - **Instance main**: `void main()` instance (không nhất thiết `public static void main(String[])`) trong ngữ cảnh được hỗ trợ.
 
 ```java
@@ -111,6 +117,7 @@ void main() {
 
 Mục tiêu: onboarding, script-like, không thay mô hình production lớn (`module-info`, packages đầy đủ vẫn là chuẩn doanh nghiệp).
 
+Chi tiết: [main-function.md](main-function.md) §5.  
 JEP: [https://openjdk.org/jeps/512](https://openjdk.org/jeps/512)
 
 ### 2.5 JEP 510 — Key Derivation Function API
@@ -179,7 +186,7 @@ try (var scope = StructuredTaskScope.open()) {
 }
 ```
 
-Chi tiết: [async.md](async.md) §5.  
+Chi tiết: [threading.md](threading.md) §9 · [async.md](async.md) §6.  
 JEP: [https://openjdk.org/jeps/505](https://openjdk.org/jeps/505)
 
 ### 4.2 JEP 507 — Primitive Types in Patterns *(Preview)*
@@ -200,6 +207,7 @@ double value = switch (o) {
 };
 ```
 
+Chi tiết: [typesystem.md](typesystem.md) · [statements.md](statements.md) · [operators.md](operators.md).  
 JEP: [https://openjdk.org/jeps/507](https://openjdk.org/jeps/507)
 
 ### 4.3 JEP 502 — Stable Values *(Preview)*
@@ -251,7 +259,7 @@ Không phải “mới 25”, nhưng là baseline khi nói Java hiện đại tr
 | Chủ đề | Từ | Ghi chú |
 |--------|-----|---------|
 | Virtual threads | 21 | Lõi concurrency — [threading.md](threading.md) |
-| Pattern matching for switch / record patterns | 21 | Sealed + switch |
+| Pattern matching for switch / record patterns | 21 | Sealed + switch — [statements.md](statements.md) · [oop.md](oop.md) |
 | Sequenced collections | 21 | [collections-generics.md](collections-generics.md) |
 | Stream Gatherers | **24** | [streams.md](streams.md) §9 |
 | `List.getFirst` / `getLast`… | 21 | Sequenced |
@@ -307,4 +315,4 @@ Tài nguyên:
 | **Preview/Incubator** | 470, 502, 505, 507, 508 |
 | **Removed** | 503 |
 
-*Tài liệu nhanh Java 25 LTS — bổ sung [oop.md](oop.md), [threading.md](threading.md), [async.md](async.md).*
+*Tài liệu nhanh Java 25 LTS — hub: [oop.md](oop.md) · [packages-modules.md](packages-modules.md) · [main-function.md](main-function.md) · [threading.md](threading.md) · [async.md](async.md) · [streams.md](streams.md).*
