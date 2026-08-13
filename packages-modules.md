@@ -19,6 +19,7 @@ automatic modules, classpath vs module path, ServiceLoader, và **JEP 511** `imp
 - [6. `module-info.java`](#6-module-infojava)
 - [7. Automatic modules & unnamed module](#7-automatic-modules--unnamed-module)
 - [8. Classpath vs Module path (Maven / Gradle)](#8-classpath-vs-module-path-maven--gradle)
+- [8.1 `--release`, preview \& Multi-Release JAR](#81---release-preview--multi-release-jar)
 - [9. Ma trận lỗi JPMS thường gặp](#9-ma-trận-lỗi-jpms-thường-gặp)
 - [10. ServiceLoader / `provides` / `uses` — pitfalls](#10-serviceloader--provides--uses--pitfalls)
 - [11. Pitfalls (Bẫy)](#11-pitfalls-bẫy)
@@ -331,6 +332,27 @@ Gợi ý:
 - Tránh **split package** (cùng package ở hai module/JAR trên module path).
 - Hiểu JPMS ngay cả khi app chạy classpath — JDK modules & native access (`--enable-native-access`) vẫn đụng encapsulation.
 
+### 8.1 `--release`, preview & Multi-Release JAR
+
+Tương đương tinh thần Go *build constraints*: Java **không** có `//go:build`, nhưng có cổng ngôn ngữ / bytecode / artifact theo phiên bản.
+
+| Cơ chế | Việc làm |
+|--------|----------|
+| `javac --release 25` | Compile đúng **language + API** của JDK 25 (an toàn hơn chỉ `--source`/`--target`) |
+| `--enable-preview` | Bật cú pháp/API preview; **javac và java** phải cùng bật |
+| Multi-Release JAR (`META-INF/versions/N/`) | Một artifact, class khác nhau theo major version runtime |
+| `--add-exports` / `--add-opens` / `--enable-native-access` | Nới encapsulation lúc chạy — nợ kỹ thuật nếu dùng mãi |
+
+```text
+javac --release 25 src/Main.java
+javac --enable-preview --release 25 PreviewDemo.java
+java  --enable-preview PreviewDemo
+```
+
+**Bẫy:** `--source 25 --target 25` **không** chặn gọi API mới hơn bootstrap JDK đang compile. `--release` mới khóa API.
+
+MRJAR: dùng khi lib phải chạy trên 21 **và** tận dụng 25; tăng độ phức tạp test matrix — đừng dùng cho app nội bộ một JDK.
+
 ---
 
 ## 9. Ma trận lỗi JPMS thường gặp
@@ -402,7 +424,7 @@ Best practice SPI: API module (interface + `exports`) ← consumer `uses` / prov
 7. **`import module` ≠ dependency** — vẫn cần `requires` / deps build; chỉ rút gọn tên.
 8. **Ambiguous simple name** sau `import module` — compile error; giải bằng import tường minh.
 9. **ServiceLoader “im lặng” rỗng** — thiếu `uses`/`provides`/`META-INF/services` hoặc sai ClassLoader; luôn kiểm tra `findFirst().isEmpty()`.
-10. **Qualified export quên cập nhật** — thêm module client mới cần sửa `exports … to`.
+11. **`--source`/`--target` không khóa API** — dùng `--release`; preview quên bật lúc `java` → lỗi runtime.
 
 ---
 
@@ -427,6 +449,7 @@ Best practice SPI: API module (interface + `exports`) ← consumer `uses` / prov
 □ Automatic-Module-Name nếu JAR chưa có module-info
 □ ServiceLoader: uses + provides (và/hoặc META-INF/services)
 □ Java 25+: import module chỉ khi thật sự giảm boilerplate
+□ --release khớp JDK mục tiêu (đừng chỉ --source/--target)
 □ --add-opens chỉ tạm thời, có plan bỏ
 ```
 

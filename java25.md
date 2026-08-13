@@ -24,13 +24,14 @@ Trang dự án: [https://openjdk.org/projects/jdk/25/](https://openjdk.org/proje
     - [2.3 JEP 511 — Module Import Declarations](#23-jep-511--module-import-declarations)
     - [2.4 JEP 512 — Compact Source Files \& Instance Main Methods](#24-jep-512--compact-source-files--instance-main-methods)
     - [2.5 JEP 510 — Key Derivation Function API](#25-jep-510--key-derivation-function-api)
-  - [3. Final — runtime / GC / AOT (tóm tắt)](#3-final--runtime--gc--aot-tóm-tắt)
+  - [3. Final — runtime / GC / AOT / JFR (tóm tắt)](#3-final--runtime--gc--aot--jfr-tóm-tắt)
     - [3.1 JEP 519 — Compact Object Headers](#31-jep-519--compact-object-headers)
     - [3.2 JEP 521 — Generational Shenandoah](#32-jep-521--generational-shenandoah)
-    - [3.3 JEP 514 / 515 — AOT ergonomics](#33-jep-514--515--aot-ergonomics)
+    - [3.3 JEP 514 / 515 — AOT](#33-jep-514--515--aot)
+    - [3.4 JFR — 518 / 520 (final) \& 509 (experimental)](#34-jfr--518--520-final--509-experimental)
   - [4. Preview / Incubator — đánh dấu rõ](#4-preview--incubator--đánh-dấu-rõ)
     - [4.1 JEP 505 — Structured Concurrency *(Fifth Preview)*](#41-jep-505--structured-concurrency-fifth-preview)
-    - [4.2 JEP 507 — Primitive Types in Patterns *(Preview)*](#42-jep-507--primitive-types-in-patterns-preview)
+    - [4.2 JEP 507 — Primitive Types in Patterns *(Third Preview)*](#42-jep-507--primitive-types-in-patterns-third-preview)
     - [4.3 JEP 502 — Stable Values *(Preview)*](#43-jep-502--stable-values-preview)
     - [4.4 JEP 508 — Vector API *(Incubator)*](#44-jep-508--vector-api-incubator)
     - [4.5 JEP 470 — PEM Encodings *(Preview)*](#45-jep-470--pem-encodings-preview)
@@ -111,7 +112,7 @@ JEP: [https://openjdk.org/jeps/511](https://openjdk.org/jeps/511)
 ```java
 // Minh họa tinh thần JEP 512 — chương trình khởi động gọn
 void main() {
-    IO.println("Hello, Java 25");
+    IO.println("Hello, Java 25");  // java.lang.IO — [main-function.md](main-function.md) §5.4
 }
 ```
 
@@ -133,14 +134,20 @@ JEP: [https://openjdk.org/jeps/510](https://openjdk.org/jeps/510)
 
 ---
 
-## 3. Final — runtime / GC / AOT (tóm tắt)
+## 3. Final — runtime / GC / AOT / JFR (tóm tắt)
 
 ### 3.1 JEP 519 — Compact Object Headers
 
-Giảm kích thước object header trên HotSpot (project Lilliput) → tiết kiệm heap, cải thiện locality với workload nhiều object nhỏ.
+Đưa compact object headers (project Lilliput) từ **experimental (JDK 24)** thành **product feature** trên HotSpot: header nhỏ hơn → tiết kiệm heap, locality tốt hơn với nhiều object nhỏ.
 
-- Thường bật / cấu hình theo cờ JVM của bản phát hành (xem release notes JDK 25).
-- Quan trọng với app memory-sensitive; đo trước/sau bằng heap histogram / GC logs.
+- **Không** bật mặc định trong JDK 25 (JEP ghi rõ non-goal). Bật:
+
+```text
+java -XX:+UseCompactObjectHeaders ...
+```
+
+- JDK 24 cần thêm `-XX:+UnlockExperimentalVMOptions`; JDK 25 **không** cần flag experimental.
+- Default-on là hướng JEP sau (không phải 25). Đo trước/sau bằng heap histogram / GC logs / JFR.
 
 JEP: [https://openjdk.org/jeps/519](https://openjdk.org/jeps/519)
 
@@ -153,25 +160,41 @@ Shenandoah GC nhận **generational mode** ổn định hơn / productized theo 
 
 JEP: [https://openjdk.org/jeps/521](https://openjdk.org/jeps/521)
 
-### 3.3 JEP 514 / 515 — AOT ergonomics
+### 3.3 JEP 514 / 515 — AOT
 
-Cải thiện trải nghiệm **Ahead-of-Time** caching / training (Project Leyden hướng):
+Cải thiện trải nghiệm **Ahead-of-Time** caching / training (Project Leyden):
 
-| JEP | Hướng |
-|-----|--------|
-| **514** | AOT command-line ergonomics — đơn giản hóa quy trình tạo/dùng AOT cache |
-| **515** | AOT liên quan cache / startup refinements (xem tiêu đề đầy đủ trên openjdk) |
+| JEP | Tiêu đề | Hướng |
+|-----|---------|--------|
+| **514** | Ahead-of-Time Command-Line Ergonomics | Đơn giản hóa tạo/dùng AOT cache từ CLI |
+| **515** | Ahead-of-Time Method Profiling | Lưu method profile vào AOT cache → warmup ngắn hơn lần chạy sau |
 
 Mục tiêu thực dụng: **startup nhanh hơn**, warm-up ngắn hơn cho service cloud — đo bằng time-to-first-response.
 
 - 514: [https://openjdk.org/jeps/514](https://openjdk.org/jeps/514)
 - 515: [https://openjdk.org/jeps/515](https://openjdk.org/jeps/515)
 
+### 3.4 JFR — 518 / 520 (final) & 509 (experimental)
+
+Java Flight Recorder trên JDK 25:
+
+| JEP | Trạng thái | Ý nghĩa |
+|-----|------------|---------|
+| **518** | Final | JFR Cooperative Sampling — sampling thân thiện với thread / safepoint hơn |
+| **520** | Final | JFR Method Timing & Tracing — đo/time method không cần instrumentation nặng tay |
+| **509** | **Experimental** | JFR CPU-Time Profiling — profile theo CPU-time (Linux); không phải Java SE preview |
+
+Experimental ≠ preview ngôn ngữ: không dùng `--enable-preview`; thường cần unlock experimental VM options. Không khóa pipeline prod vào 509 cho đến khi thành product.
+
+- 518: [https://openjdk.org/jeps/518](https://openjdk.org/jeps/518)
+- 520: [https://openjdk.org/jeps/520](https://openjdk.org/jeps/520)
+- 509: [https://openjdk.org/jeps/509](https://openjdk.org/jeps/509)
+
 ---
 
 ## 4. Preview / Incubator — đánh dấu rõ
 
-Các tính năng dưới đây **không phải** Java SE final trong 25. Cần `--enable-preview` (preview) hoặc module incubator; có thể đổi / đổi tên ở bản sau.
+Các tính năng dưới đây **không phải** Java SE final trong 25. Cần `--enable-preview` (preview) hoặc module incubator; có thể đổi / đổi tên ở bản sau. **Experimental VM** (JEP 509) nằm ở [§3.4](#34-jfr--518--520-final--509-experimental) — không dùng `--enable-preview`.
 
 ### 4.1 JEP 505 — Structured Concurrency *(Fifth Preview)*
 
@@ -189,9 +212,9 @@ try (var scope = StructuredTaskScope.open()) {
 Chi tiết: [threading.md](threading.md) §9 · [async.md](async.md) §6.  
 JEP: [https://openjdk.org/jeps/505](https://openjdk.org/jeps/505)
 
-### 4.2 JEP 507 — Primitive Types in Patterns *(Preview)*
+### 4.2 JEP 507 — Primitive Types in Patterns *(Third Preview)*
 
-Mở rộng pattern matching / `instanceof` / `switch` cho **primitive types** (ví dụ khớp `int`, `double` với độ chính xác / safe conversion theo quy tắc JEP).
+**Third Preview** trên JDK 25. Mở rộng pattern matching / `instanceof` / `switch` cho **primitive types** (ví dụ khớp `int`, `double` với độ chính xác / safe conversion theo quy tắc JEP).
 
 ```java
 // Minh họa tinh thần — cú pháp chính xác theo preview JDK 25
@@ -303,16 +326,19 @@ Tài nguyên:
 4. Đánh giá startup: AOT flags (514/515) trên service cold-start.
 5. GC: chỉ đổi Shenandoah generational sau benchmark — đừng đổi production mù.
 6. Structured Concurrency / primitive patterns / Stable Values: **feature-flag** hoặc module riêng vì vẫn preview.
-7. Đo heap với Compact Object Headers khi bật trên môi trường hỗ trợ.
-8. Cập nhật tài liệu nội bộ: virtual threads là mặc định tư duy I/O; CF/reactive khi thật sự cần.
+7. Compact Object Headers: thử `-XX:+UseCompactObjectHeaders` trên staging — **chưa** mặc định JDK 25.
+8. JFR: dùng 518/520 khi đo method/sampling; 509 CPU-time vẫn experimental.
+9. Cập nhật tài liệu nội bộ: virtual threads là mặc định tư duy I/O; CF/reactive khi thật sự cần.
 
 ---
 
 | Nhóm | JEP |
 |------|-----|
 | **Final ngôn ngữ/API** | 506, 510, 511, 512, 513 |
-| **Final runtime** | 514, 515, 519, 521 |
-| **Preview/Incubator** | 470, 502, 505, 507, 508 |
+| **Final runtime** | 514, 515, 518, 519, 520, 521 |
+| **Preview** | 470, 502, 505, 507 |
+| **Incubator** | 508 |
+| **Experimental** | 509 |
 | **Removed** | 503 |
 
 *Tài liệu nhanh Java 25 LTS — hub: [oop.md](oop.md) · [packages-modules.md](packages-modules.md) · [main-function.md](main-function.md) · [threading.md](threading.md) · [async.md](async.md) · [streams.md](streams.md).*

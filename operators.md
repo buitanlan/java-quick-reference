@@ -349,8 +349,9 @@ Java **không** có:
 
 Gần native:
 
-- **FFM API** (`java.lang.foreign.MemorySegment`, …)
+- **FFM API** (`java.lang.foreign.MemorySegment`, `Arena`, `Linker`) — ổn định Java 22+; overview: [typesystem.md](typesystem.md) §2.3
 - `VarHandle` / `MethodHandle`
+- `--enable-native-access` khi gọi restricted native
 
 Reference Java là managed — gán / `==` trên identity object, không phải địa chỉ số học.
 

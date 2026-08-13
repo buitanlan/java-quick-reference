@@ -888,7 +888,7 @@ synchronized (lock) {
 }
 ```
 
-**Object layout (tóm tắt):** mỗi instance trên HotSpot có **object header** + fields (và padding alignment). Nhiều object nhỏ → header chiếm tỷ lệ đáng kể. **JEP 519 — Compact Object Headers** (Java 25) thu gọn header → giảm footprint / tăng mật độ cache. Chi tiết GC & headers: [typesystem.md](typesystem.md) §2.1 · [java25.md](java25.md).
+**Object layout (tóm tắt):** mỗi instance trên HotSpot có **object header** + fields (và padding alignment). Nhiều object nhỏ → header chiếm tỷ lệ đáng kể. **JEP 519 — Compact Object Headers** (Java 25) là *product* nhưng **chưa mặc định** — bật `-XX:+UseCompactObjectHeaders`. Chi tiết: [typesystem.md](typesystem.md) §2.1 · [java25.md](java25.md).
 
 ---
 

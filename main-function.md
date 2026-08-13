@@ -24,6 +24,7 @@ Tài liệu này là tham khảo thực hành: signature hợp lệ, launcher, m
     - [5.1 Unnamed class](#51-unnamed-class)
     - [5.2 Instance main \& simplified launch](#52-instance-main--simplified-launch)
     - [5.3 Các dạng main được launcher chấp nhận](#53-các-dạng-main-được-launcher-chấp-nhận)
+    - [5.4 `java.lang.IO`](#54-javalangio)
   - [6. `java` launcher](#6-java-launcher)
   - [7. Exit codes \& `System.exit`](#7-exit-codes--systemexit)
   - [8. Compact source → named class (migration)](#8-compact-source--named-class-migration)
@@ -207,6 +208,22 @@ static void main(String[] args) { }
 - Instance main đòi hỏi class **instantiable** (constructor accessible không-arg phù hợp quy tắc launch).
 - Không dựa vào instance main cho framework lớn (Spring Boot, Jakarta EE, …) — chúng kỳ vọng static classic main.
 
+### 5.4 `java.lang.IO`
+
+JEP 512 kèm class **`java.lang.IO`** (cùng module `java.base`) cho I/O console đơn giản trong compact source:
+
+```java
+void main() {
+    IO.println("Hello, Java 25");
+    String name = IO.readln("Name: ");
+    IO.println("hi " + name);
+}
+```
+
+- `IO.println` / `IO.print` / `IO.readln` — không cần `System.out` cho script.
+- Production app vẫn dùng logging / `System.out` có chủ đích; `IO` không thay `java.nio` hay HTTP.
+- Compact source import sẵn một số kiểu đơn giản theo JEP — khi migrate sang named class, thêm `import` tường minh.
+
 ---
 
 ## 6. `java` launcher
@@ -355,6 +372,7 @@ Checklist migrate:
 4. **Nhầm overload với entry** — nhiều `main` overload: launcher chọn theo quy tắc JEP 512 / classic; đừng giả định “method đầu tiên trong file”.
 5. **Sai tên class khi launch** — `java App` cần `App.class` trên classpath; package phải khớp (`java com.example.App`).
 6. **Daemon / non-daemon** — main return nhưng còn non-daemon thread → JVM **không** thoát; kiểm soát vòng đời rõ — [threading.md](threading.md).
+7. **`IO` chỉ từ 25** — `java.lang.IO` không có trên 21; compact source dùng `IO.println` sẽ không compile `--release 21`.
 
 ---
 

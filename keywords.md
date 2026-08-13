@@ -512,7 +512,7 @@ public class NativeHasher {
 **Ghi chú:**
 
 - Method `native` **không** có body Java; implementation nằm ngoài JVM. Gọi sai chữ ký / chưa `loadLibrary` → `UnsatisfiedLinkError` / crash native khó debug.
-- **JNI** cổ điển: boilerplate C/`jni.h`, rủi ro GC/pinning, không type-safe phía native. Ưu tiên **Foreign Function & Memory (FFM) API** (`java.lang.foreign`, ổn định dần qua các bản gần đây) khi gọi thư viện C hiện đại — vẫn có thể gặp `native` trong JDK/legacy.
+- **JNI** cổ điển: boilerplate C/`jni.h`, rủi ro GC/pinning, không type-safe phía native. Ưu tiên **Foreign Function & Memory (FFM) API** (`java.lang.foreign`, ổn định Java 22+) khi gọi thư viện C hiện đại — overview [typesystem.md](typesystem.md) §2.3. Vẫn gặp `native` trong JDK/legacy.
 - Một số method “native” trên JDK thực tế là **intrinsic** (JVM thay bằng code máy) — đừng copy mẫu `Object.hashCode` làm ví dụ JNI app.
 - `native` **không** kết hợp với `abstract`; có thể `synchronized` nhưng monitor Java ≠ an toàn phía C — đồng bộ phải rõ ở cả hai phía.
 - Hiếm trong business app; giữ boundary mỏng, test trên đúng OS/arch. Liên quan đồng thời/pinning: [threading.md](threading.md).

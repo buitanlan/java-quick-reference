@@ -22,6 +22,7 @@ virtual threads — dùng như mặc định khi nói “code hiện tại”. V
   - [2. Bộ nhớ: Stack / Heap, GC \& escape analysis](#2-bộ-nhớ-stack--heap-gc--escape-analysis)
     - [2.1 Generational Shenandoah (JEP 521) \& Compact Object Headers (JEP 519)](#21-generational-shenandoah-jep-521--compact-object-headers-jep-519)
     - [2.2 Escape analysis \& scalar replacement](#22-escape-analysis--scalar-replacement)
+    - [2.3 FFM / native memory (overview)](#23-ffm--native-memory-overview)
   - [3. Primitive vs reference](#3-primitive-vs-reference)
   - [4. Definite assignment \& blank `final`](#4-definite-assignment--blank-final)
   - [5. Boxing / unboxing \& wrapper types](#5-boxing--unboxing--wrapper-types)
@@ -93,8 +94,8 @@ Java 25 gắn với các cải tiến runtime đáng chú ý (không đổi cú 
 
 - **JEP 521 — Generational Shenandoah**: Shenandoah theo thế hệ (young/old) nhằm giảm pause và chi phí trên workload
   cấp phát ngắn sống — bật/cấu hình theo flag JVM của bản phát hành.
-- **JEP 519 — Compact Object Headers**: thu gọn object header trên HotSpot → giảm footprint heap, tăng mật độ cache;
-  ảnh hưởng hiệu năng thực tế hơn là API ngôn ngữ.
+- **JEP 519 — Compact Object Headers**: product feature (không còn experimental). **Chưa** mặc định trên JDK 25 —
+  bật `-XX:+UseCompactObjectHeaders`. Header nhỏ hơn → footprint / locality tốt hơn với nhiều object nhỏ.
 
 Thực hành: chọn GC theo latency/throughput; đo bằng `-Xlog:gc*` / JFR — không đoán mù. Chi tiết LTS: [java25.md](java25.md).
 
@@ -134,6 +135,28 @@ Nguyên nhân escape hay gặp (tương tự tinh thần Go `-gcflags="-m"`):
 - EA là **tối ưu JIT**, không phải đảm bảo ngôn ngữ — đừng phụ thuộc “object này chắc chắn không allocate”.
 - Hot path: ưu tiên primitive, tránh boxing/`Optional` không cần thiết, giữ object cục bộ khi profile nóng.
 - Đo: JFR / async-profiler / `-XX:+PrintEscapeAnalysis` (debug JVM builds) — production dùng JFR Allocation.
+
+### 2.3 FFM / native memory (overview)
+
+Java **không** có pointer số học. Gần native (tương tự tinh thần Go `unsafe` / CGo):
+
+| API | Dùng khi |
+|-----|----------|
+| **FFM** `java.lang.foreign` (`MemorySegment`, `Arena`, `Linker`, `SymbolLookup`) | Gọi C / cấp phát off-heap — **ổn định từ Java 22** |
+| `ByteBuffer` / `Unsafe` di sản | Code cũ; `sun.misc.Unsafe` không phải API công khai lâu dài |
+| `VarHandle` | Atomic / opaque access trên field/array/off-heap |
+
+```java
+try (Arena arena = Arena.ofConfined()) {
+    MemorySegment seg = arena.allocate(16);
+    seg.set(ValueLayout.JAVA_INT, 0, 42);
+    int v = seg.get(ValueLayout.JAVA_INT, 0);
+}
+```
+
+- Restricted native access: `--enable-native-access=ALL-UNNAMED` (hoặc module cụ thể) trên JDK hiện đại.
+- Virtual threads + native/JNI cổ điển có thể **pin** carrier — [threading.md](threading.md) §3.
+- Chi tiết toán tử/không-pointer: [operators.md](operators.md) §14. Không nhầm FFM với Valhalla value types ([§15](#15-value-types--ngữ-cảnh-tương-lai)).
 
 ---
 
@@ -356,8 +379,8 @@ khi có `java.util.concurrent`), `clone` (protected, dễ sai — ưu tiên copy
 - Immutable; literal vào pool; `+` biên dịch thành `StringBuilder`/`StringConcatFactory`.
 - So sánh nội dung: `equals` / `contentEquals`; không dùng `==` trừ khi cố ý intern.
 - Text blocks (Java 15+): `""" ... """` — xem [literals.md](literals.md).
-- Java hiện đại: `STR` template processor đã có lịch sử preview; kiểm tra trạng thái cuối trên JDK 25 docs khi dùng
-  string templates — ưu tiên `formatted`, `MessageFormat`, hoặc text block + `replace` nếu cần portable.
+- **String templates** (`STR."…\{x}"`) từng preview (21–23) rồi **rút lại** — **không** có trong Java 25.
+  Dùng `formatted()`, `MessageFormat`, text block, hoặc `StringBuilder`.
 
 ```java
 String s = "Java " + 25;
@@ -825,7 +848,7 @@ Values
 | `var` + diamond | `ArrayList<Object>` bất ngờ | Chỉ rõ `<T>` hoặc target type |
 | Narrowing im lặng | Sai số / compound `+=` | Cast tường minh; `*Exact` |
 | `equals` vs `compareTo` | `TreeMap` lệch `HashMap` | Giữ hợp đồng nhất quán |
-| Preview JEP 507 | Code không chạy بدون flag | Tách module preview |
+| Preview JEP 507 | Code không chạy nếu thiếu `--enable-preview` | Tách module preview |
 
 **Checklist thực hành Java 25**
 
@@ -856,7 +879,7 @@ Values
 | **18–19** | Pattern switch / record patterns tiếp tục preview |
 | **20** | Record patterns / pattern switch tiến hóa |
 | **21 LTS** | Pattern matching for `switch` **final**; record patterns **final**; unnamed patterns/vars *(preview)*; sequenced collections |
-| **22** | Unnamed variables & patterns **final**; string templates *(preview — rút lại sau)* |
+| **22** | Unnamed variables & patterns **final**; string templates *(preview — **rút lại**, không có ở 25)* |
 | **23–24** | Primitive types in patterns *(preview, JEP 455/488)*; markdown docs… |
 | **25 LTS** | Flexible constructors **final** (JEP 513); Scoped Values **final**; compact source/main; module import; **JEP 507** primitive patterns *(preview)*; Compact Object Headers (JEP 519); Generational Shenandoah (JEP 521) |
 

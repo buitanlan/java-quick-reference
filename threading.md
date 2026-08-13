@@ -455,7 +455,7 @@ t.join(Duration.ofSeconds(5));
 
 ## 9. Structured Concurrency (`StructuredTaskScope`) — Java 25 preview
 
-> **PREVIEW** trong Java 25 ([JEP 505](https://openjdk.org/jeps/505) — Fifth Preview). Cần `--enable-preview`. API có thể đổi — xem thêm [async.md](async.md) §5 và [java25.md](java25.md).
+> **PREVIEW** trong Java 25 ([JEP 505](https://openjdk.org/jeps/505) — Fifth Preview). Cần `--enable-preview`. API có thể đổi — xem thêm [async.md](async.md) §6 và [java25.md](java25.md).
 
 **Ý tưởng**: nhóm subtasks đồng thời thành **một đơn vị có lifetime lexical** — lỗi / hủy lan theo cây; quan sát cha–con rõ hơn `ExecutorService` rời.
 

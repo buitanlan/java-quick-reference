@@ -6,7 +6,7 @@ Language level / preview features phụ thuộc toolchain và `--enable-preview`
 
 ---
 
-Tham khảo chính thức: [The Java Tutorials](https://docs.oracle.com/javase/tutorial/) · [Java Language Specification](https://docs.oracle.com/javase/specs/) · [JDK 25 JEPs](https://openjdk.org/projects/jdk/25/) · [API docs](https://docs.oracle.com/en/java/javase/25/docs/api/) · [OpenJDK 25](https://openjdk.org/projects/jdk/25/)
+Tham khảo chính thức: [The Java Tutorials](https://docs.oracle.com/javase/tutorial/) · [Java Language Specification](https://docs.oracle.com/javase/specs/) · [JDK 25 JEPs](https://openjdk.org/projects/jdk/25/) · [API docs](https://docs.oracle.com/en/java/javase/25/docs/api/)
 
 ---
 
