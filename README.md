@@ -1,12 +1,12 @@
 # Tài liệu tham khảo ngôn ngữ lập trình Java
 
-Bộ tài liệu tham chiếu **in-depth / advanced** cho ngôn ngữ Java, nhắm **JDK 25 LTS**. Không phải giáo trình nhập môn: các khái niệm được trình bày dạng tham khảo nhanh kèm chi tiết nâng cao (semantics, JEP/version gates, pitfalls). Nếu chưa biết Java, bắt đầu bằng The Java Tutorials bên dưới, rồi dùng bộ này khi cần tra cứu sâu hơn.
+Bộ tài liệu tham chiếu **in-depth / advanced** cho ngôn ngữ Java, nhắm **JDK 27** (GA 15/9/2026). Không phải giáo trình nhập môn: các khái niệm được trình bày dạng tham khảo nhanh kèm chi tiết nâng cao (semantics, JEP/version gates, pitfalls). Nếu chưa biết Java, bắt đầu bằng The Java Tutorials bên dưới, rồi dùng bộ này khi cần tra cứu sâu hơn.
 
-Language level / preview features phụ thuộc toolchain và `--enable-preview` (hoặc `--source`/`--release` của `javac`). Nội dung các file ghi rõ khi tính năng là final, preview, hoặc runtime-only (JVM flags).
+LTS gần nhất vẫn là **JDK 25**; 27 là feature release. Language level / preview features phụ thuộc toolchain và `--enable-preview` (hoặc `--source`/`--release` của `javac`). Nội dung các file ghi rõ khi tính năng là final, preview, incubator, hoặc runtime-only (JVM flags).
 
 ---
 
-Tham khảo chính thức: [The Java Tutorials](https://docs.oracle.com/javase/tutorial/) · [Java Language Specification](https://docs.oracle.com/javase/specs/) · [JDK 25 JEPs](https://openjdk.org/projects/jdk/25/) · [API docs](https://docs.oracle.com/en/java/javase/25/docs/api/)
+Tham khảo chính thức: [The Java Tutorials](https://docs.oracle.com/javase/tutorial/) · [Java Language Specification](https://docs.oracle.com/javase/specs/) · [JDK 27 JEPs](https://openjdk.org/projects/jdk/27/) · [API docs](https://docs.oracle.com/en/java/javase/27/docs/api/)
 
 ---
 
@@ -36,7 +36,3 @@ Tham khảo chính thức: [The Java Tutorials](https://docs.oracle.com/javase/t
 
 - [Thread & Virtual thread](threading.md)
 - [Lập trình bất đồng bộ](async.md)
-
-### Phiên bản
-
-- [Java 25 — điểm nổi bật](java25.md)

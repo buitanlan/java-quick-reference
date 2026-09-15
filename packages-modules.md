@@ -1,10 +1,10 @@
 # Package & Module
 
 Java tổ chức mã nguồn theo **package** (namespace logic + cấu trúc thư mục) và, từ Java 9, theo **JPMS module**
-(strong encapsulation ở mức JAR/module). Tài liệu nhắm **Java 25 LTS**: declaration/import, `module-info`,
+(strong encapsulation ở mức JAR/module). Tài liệu nhắm **Java 27**: declaration/import, `module-info`,
 automatic modules, classpath vs module path, ServiceLoader, và **JEP 511** `import module …`.
 
-> Cross-link: [java25.md](java25.md) (JEP 511) · [keywords.md](keywords.md) · [oop.md](oop.md) ·
+> Cross-link: [keywords.md](keywords.md) · [oop.md](oop.md) ·
 > [exceptions.md](exceptions.md) · [main-function.md](main-function.md) · [README.md](README.md)
 
 ---
@@ -106,7 +106,7 @@ import com.example.Outer.Inner; // nested type
 
 ## 4. JEP 511 — Module Import Declarations (Java 25)
 
-**JEP 511** (final trong Java 25) cho phép import **mọi package exported** của một module. Tóm tắt LTS: [java25.md §2.3](java25.md#23-jep-511--module-import-declarations).
+**JEP 511** (final từ Java 25) cho phép import **mọi package exported** của một module.
 
 ```java
 import module java.base;
@@ -144,7 +144,7 @@ Khi nào dùng:
 - File script / compact / notebook-style, hoặc class dùng dày đặc API nhiều package cùng module.
 - API public library lớn: thường vẫn prefer import tường minh từng type (diff/review dễ hơn).
 
-**Version gate:** cần JDK **25+** (hoặc toolchain `--release 25`). Trên 21/17 → lỗi cú pháp `import module`.
+**Version gate:** cần JDK **25+** (toolchain hiện tại `--release 27`). Trên 21/17 → lỗi cú pháp `import module`.
 
 ---
 
@@ -338,18 +338,18 @@ Tương đương tinh thần Go *build constraints*: Java **không** có `//go:b
 
 | Cơ chế | Việc làm |
 |--------|----------|
-| `javac --release 25` | Compile đúng **language + API** của JDK 25 (an toàn hơn chỉ `--source`/`--target`) |
+| `javac --release 27` | Compile đúng **language + API** của JDK 27 (an toàn hơn chỉ `--source`/`--target`) |
 | `--enable-preview` | Bật cú pháp/API preview; **javac và java** phải cùng bật |
 | Multi-Release JAR (`META-INF/versions/N/`) | Một artifact, class khác nhau theo major version runtime |
 | `--add-exports` / `--add-opens` / `--enable-native-access` | Nới encapsulation lúc chạy — nợ kỹ thuật nếu dùng mãi |
 
 ```text
-javac --release 25 src/Main.java
-javac --enable-preview --release 25 PreviewDemo.java
+javac --release 27 src/Main.java
+javac --enable-preview --release 27 PreviewDemo.java
 java  --enable-preview PreviewDemo
 ```
 
-**Bẫy:** `--source 25 --target 25` **không** chặn gọi API mới hơn bootstrap JDK đang compile. `--release` mới khóa API.
+**Bẫy:** `--source 27 --target 27` **không** chặn gọi API mới hơn bootstrap JDK đang compile. `--release` mới khóa API.
 
 MRJAR: dùng khi lib phải chạy trên 21 **và** tận dụng 25; tăng độ phức tạp test matrix — đừng dùng cho app nội bộ một JDK.
 
@@ -433,7 +433,7 @@ Best practice SPI: API module (interface + `exports`) ← consumer `uses` / prov
 1. Package theo feature (`…order`, `…payment`) hơn chỉ layer sâu (`…controller`/`…service` vô tận).
 2. Export tối thiểu; `opens` **qualified** tới framework cụ thể.
 3. `requires transitive` chỉ khi kiểu dependency xuất hiện ở API public.
-4. Java 25: `import module` cho file dày API JDK — giải ambiguity sớm; xem [java25.md](java25.md).
+4. Java 25+: `import module` cho file dày API JDK — giải ambiguity sớm.
 5. Publish JAR lên module path → set `Automatic-Module-Name` trước khi có `module-info`.
 6. SPI: tách API / impl; khai báo đủ `uses`/`provides` (+ `META-INF/services` nếu dual classpath).
 7. Compact source / default package: OK học; production → named package ± module.
@@ -475,7 +475,7 @@ public class Fetch {
 
 | File | Liên quan |
 |------|-----------|
-| [java25.md](java25.md) | JEP 511 `import module`, compact source |
+| [main-function.md](main-function.md) | Compact source / launcher |
 | [keywords.md](keywords.md) | `package`, `import`, `module` |
 | [oop.md](oop.md) | Visibility, sealed API boundaries |
 | [exceptions.md](exceptions.md) | Không leak type qua biên module |
@@ -484,4 +484,4 @@ public class Fetch {
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. JPMS từ 9; `import module` từ 25. Classpath vẫn phổ biến — hiểu module để làm việc với JDK và migrate có chủ đích.*
+*Tham chiếu nhanh — Java 27. JPMS từ 9; `import module` từ 25. Classpath vẫn phổ biến — hiểu module để làm việc với JDK và migrate có chủ đích.*

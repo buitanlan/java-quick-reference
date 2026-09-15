@@ -2,10 +2,10 @@
 
 Trong Java, **method** đóng gói hành vi của class/interface/enum/record. Tài liệu phủ khai báo, overload resolution,
 varargs / `@SafeVarargs`, bridge methods, modifier, covariant return, pass-by-value, dispatch, method reference
-(tóm tắt), và compact constructor của record — mục tiêu **Java 25 LTS**.
+(tóm tắt), và compact constructor của record — mục tiêu **Java 27**.
 
 > Cross-link: [oop.md](oop.md) · [typesystem.md](typesystem.md) · [lambdas-functional.md](lambdas-functional.md) ·
-> [exceptions.md](exceptions.md) · [keywords.md](keywords.md) · [java25.md](java25.md)
+> [exceptions.md](exceptions.md) · [keywords.md](keywords.md)
 
 ---
 
@@ -433,7 +433,7 @@ Muốn “trả nhiều giá trị”: record/`Optional`/holder object, hoặc r
 
 ## 11. Khởi tạo & gọi method trong lifecycle
 
-Thứ tự khởi tạo instance (tóm tắt) — chi tiết field/ctor: [oop.md](oop.md) · flexible ctor bodies Java 25: [java25.md](java25.md).
+Thứ tự khởi tạo instance (tóm tắt) — chi tiết field/ctor: [oop.md](oop.md) (flexible ctor bodies từ Java 25, JEP 513).
 
 1. Thanh phân static (class init) — một lần / class loader.
 2. Superclass ctor chain.
@@ -521,7 +521,7 @@ public record Point(int x, int y) {
 - Record có canonical constructor (tường minh hoặc compact).
 - Không khai báo field instance thêm (trừ static); behavior qua methods.
 - Compact constructor chạy trước khi field component được gán cuối cùng.
-- Java 25 — flexible constructor bodies (JEP 513): [java25.md](java25.md).
+- Flexible constructor bodies (JEP 513, final từ Java 25): [oop.md](oop.md).
 
 ### 13.3 Accessor của record
 
@@ -617,8 +617,8 @@ public final class MethodsCheatSheet {
 | [lambdas-functional.md](lambdas-functional.md) | `::`, SAM, checked in lambda |
 | [collections-generics.md](collections-generics.md) | Generic methods, PECS |
 | [exceptions.md](exceptions.md) | `throws` |
-| [java25.md](java25.md) | JEP 513 flexible constructors |
+| [oop.md](oop.md) | JEP 513 flexible constructors |
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. Overload resolution & bridges ổn định từ lâu; record compact ctor từ 16; flexible ctor bodies từ 25.*
+*Tham chiếu nhanh — Java 27. Overload resolution & bridges ổn định từ lâu; record compact ctor từ 16; flexible ctor bodies từ 25.*

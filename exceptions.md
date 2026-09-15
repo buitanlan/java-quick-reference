@@ -1,8 +1,8 @@
 # Exception trong Java
 
-Xử lý lỗi với hệ phân cấp `Throwable`, checked vs unchecked, `try`/`catch`/`finally`, try-with-resources, `throw`/`throws`, wrapping, suppressed, multi-failure, biên API, logging, test, và `StackWalker` — **nhắm Java 25 LTS**.
+Xử lý lỗi với hệ phân cấp `Throwable`, checked vs unchecked, `try`/`catch`/`finally`, try-with-resources, `throw`/`throws`, wrapping, suppressed, multi-failure, biên API, logging, test, và `StackWalker` — **nhắm Java 27**.
 
-`try`/`catch`/`throw`/`throws`/`finally` là từ khóa — xem [keywords.md](keywords.md). Cấu trúc khối statement: [statements.md](statements.md). Concurrency / virtual threads: [threading.md](threading.md). `CompletableFuture` / structured concurrency: [async.md](async.md). Hierarchy class/interface: [oop.md](oop.md). Tóm tắt phiên bản: [java25.md](java25.md).
+`try`/`catch`/`throw`/`throws`/`finally` là từ khóa — xem [keywords.md](keywords.md). Cấu trúc khối statement: [statements.md](statements.md). Concurrency / virtual threads: [threading.md](threading.md). `CompletableFuture` / structured concurrency: [async.md](async.md). Hierarchy class/interface: [oop.md](oop.md).
 
 ---
 
@@ -96,7 +96,7 @@ public void setAge(int age) {
 
 **Tranh luận thực dụng:** nhiều codebase hiện đại prefer unchecked + tài liệu rõ; vẫn tôn trọng checked của JDK (`IOException`) hoặc bọc `UncheckedIOException` ở biên API functional/lambda — xem [lambdas-functional.md](lambdas-functional.md) nếu có trong bộ tài liệu.
 
-**Version note:** mô hình checked/unchecked không đổi ở Java 25; thay đổi thực tế nằm ở concurrency (virtual threads, structured concurrency) và API mới quanh stack/diagnostics.
+**Version note:** mô hình checked/unchecked không đổi ở Java 27; thay đổi thực tế nằm ở concurrency (virtual threads, structured concurrency) và API mới quanh stack/diagnostics.
 
 ---
 
@@ -503,7 +503,7 @@ try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
 }
 ```
 
-Xem [threading.md](threading.md), [async.md](async.md), [java25.md](java25.md).
+Xem [threading.md](threading.md), [async.md](async.md).
 
 ### 14.3 `CompletionException` / `ExecutionException` — unwrap
 
@@ -772,10 +772,10 @@ public final class ExceptionDemo {
 | [threading.md](threading.md) | Interrupt, virtual threads, uncaught handler |
 | [async.md](async.md) | `CompletableFuture`, structured concurrency |
 | [oop.md](oop.md) | Override `throws`, hierarchy kiểu |
-| [java25.md](java25.md) | Java 25 LTS — concurrency & language notes |
+| [threading.md](threading.md) · [async.md](async.md) | Concurrency & structured concurrency |
 | [packages-modules.md](packages-modules.md) | Biên module / không leak type |
 | [main-function.md](main-function.md) | Bắt ở `main` / launcher |
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. Checked/unchecked không đổi; thực hành hiện đại nhấn mạnh virtual threads, unwrap async wrappers, và biên API sạch.*
+*Tham chiếu nhanh — Java 27. Checked/unchecked không đổi; thực hành hiện đại nhấn mạnh virtual threads, unwrap async wrappers, và biên API sạch.*

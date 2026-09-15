@@ -1,10 +1,10 @@
 # Phát biểu (Statements) trong Java
 
-Tài liệu tham khảo các **statement** trong **Java 25 LTS**: khối, khai báo, rẽ nhánh (pattern matching & switch expression),
+Tài liệu tham khảo các **statement** trong **Java 27**: khối, khai báo, rẽ nhánh (pattern matching & switch expression),
 vòng lặp, nhảy (`yield` vs `return`), try-with-resources, nhãn, và `synchronized`.
 
 > Cross-link: [operators.md](operators.md) · [keywords.md](keywords.md) · [exceptions.md](exceptions.md) ·
-> [oop.md](oop.md) (sealed) · [lambdas-functional.md](lambdas-functional.md) · [java25.md](java25.md)
+> [oop.md](oop.md) (sealed) · [lambdas-functional.md](lambdas-functional.md)
 
 ---
 
@@ -15,7 +15,7 @@ vòng lặp, nhảy (`yield` vs `return`), try-with-resources, nhãn, và `synch
 - [3. Declaration statements](#3-declaration-statements)
 - [4. Expression statements](#4-expression-statements)
 - [5. Selection: `if` / `else`, `switch`](#5-selection-if--else-switch)
-- [6. Pattern matching & JEP 507 (preview)](#6-pattern-matching--jep-507-preview)
+- [6. Pattern matching & JEP 532 (preview)](#6-pattern-matching--jep-532-preview)
 - [7. Iteration: `for` / enhanced-for / `while` / `do`](#7-iteration-for--enhanced-for--while--do)
 - [8. Jump: `break` / `continue` / `return` / `yield` / `throw` / `assert`](#8-jump-break--continue--return--yield--throw--assert)
 - [9. Exception & resource: `try` / try-with-resources](#9-exception--resource-try--try-with-resources)
@@ -224,7 +224,7 @@ Switch **expression** (và statement dạng pattern hiện đại) yêu cầu ph
 | `case null` thiếu | Switch trên reference + pattern có thể NPE / lỗi null-hostility tùy dạng | Khai báo `case null` tường minh khi null hợp lệ |
 | Dominance / thứ tự | Case cụ thể sau case tổng quát → lỗi “dominated” | Đặt pattern hẹp / guarded **trước** pattern rộng |
 | Nested record pattern | Thiếu nhánh lồng → không exhaust | Phủ mọi combination hoặc `default` có chủ đích |
-| Preview primitives (JEP 507) | Exhaust với primitive boxes dễ nhầm | Cô lập `--enable-preview`; xem [§6](#6-pattern-matching--jep-507-preview) |
+| Preview primitives (JEP 532) | Exhaust với primitive boxes dễ nhầm | Cô lập `--enable-preview`; xem [§6](#6-pattern-matching--jep-532-preview) |
 
 ```java
 enum Color { RED, GREEN, BLUE }
@@ -263,7 +263,7 @@ Sealed types: [oop.md](oop.md). Pattern `instanceof`: [operators.md](operators.m
 
 ---
 
-## 6. Pattern matching & JEP 507 (preview)
+## 6. Pattern matching & JEP 532 (preview)
 
 ### 6.1 Pattern phổ biến (ổn định)
 
@@ -281,14 +281,14 @@ if (obj instanceof Point(int x, int y) && x == y) {
 }
 ```
 
-### 6.2 JEP 507 — Primitive Types in Patterns, `instanceof`, and `switch` (**Third Preview · Java 25**)
+### 6.2 JEP 532 — Primitive Types in Patterns, `instanceof`, and `switch` (**Fifth Preview · Java 27**)
 
-> **PREVIEW** — cần biên dịch/chạy với `--enable-preview` (và thường `--source 25` / `--release 25` tùy tool). API/semantics có thể đổi trước khi thành chuẩn.
+> **PREVIEW** — cần biên dịch/chạy với `--enable-preview` (và thường `--source 27` / `--release 27` tùy tool). API/semantics có thể đổi trước khi thành chuẩn.
 
 Cho phép pattern / `instanceof` / `switch` với **kiểu nguyên thủy**, kèm kiểm tra **độ chính xác khi chuyển đổi** (ví dụ `int` có khớp `byte` không mất mát?).
 
 ```java
-// PREVIEW — JEP 507 (Java 25, Third Preview)
+// PREVIEW — JEP 532 (Java 27, Fifth Preview)
 Object value = 42;
 
 if (value instanceof byte b) {
@@ -568,7 +568,7 @@ for (int i = 0; i < n; i++); // BUG thường gặp: vòng lặp rỗng
 8. **Sửa collection trong enhanced-for** — `ConcurrentModificationException` (fail-fast).
 9. **Gán biến vòng enhanced-for** — không đổi phần tử collection; cần `ListIterator` / index.
 10. **`assert` làm validation API** — tắt mặc định (`-ea`); không thay `IllegalArgumentException`.
-11. **JEP 507 preview** trộn production không flag — build lệch môi trường.
+11. **JEP 532 preview** trộn production không flag — build lệch môi trường.
 12. **`synchronized` + I/O dài** trên virtual threads — nguy cơ pinning / giữ monitor lâu.
 
 ---
@@ -580,7 +580,7 @@ for (int i = 0; i < n; i++); // BUG thường gặp: vòng lặp rỗng
 3. `var` khi kiểu bên phải đã rõ; tránh `var` làm mờ API quan trọng.
 4. Prefer try-with-resources hơn `finally` đóng tay — [exceptions.md](exceptions.md).
 5. Label `break`/`continue` chỉ khi nested thật sự cần — cân nhắc method + `return`.
-6. Đánh dấu **JEP 507 preview**; cô lập `--enable-preview` — [java25.md](java25.md).
+6. Đánh dấu **JEP 532 preview**; cô lập `--enable-preview`.
 7. Blocking loops + virtual threads: tốt I/O-bound fan-out; CPU-bound cần pool hợp lý.
 8. Unnamed `_` (22+) khi discard — [keywords.md](keywords.md) · [literals.md](literals.md).
 
@@ -590,7 +590,7 @@ for (int i = 0; i < n; i++); // BUG thường gặp: vòng lặp rỗng
 □ nested loop: label có chủ đích hoặc extrmethod
 □ try-with-resources cho AutoCloseable
 □ không for (...);
-□ preview JEP 507 có flag rõ
+□ preview JEP 532 có flag rõ
 ```
 
 ---
@@ -633,8 +633,8 @@ public final class StatementDemo {
 | [exceptions.md](exceptions.md) | `try` / try-with-resources |
 | [oop.md](oop.md) | Sealed, records — exhaustiveness |
 | [lambdas-functional.md](lambdas-functional.md) | Effectively final trong block |
-| [java25.md](java25.md) | Preview patterns, LTS |
+| [typesystem.md](typesystem.md) | Primitive patterns (JEP 532) |
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. Switch expression 14+; pattern switch 21; unnamed `_` 22+; JEP 507 preview trên 25.*
+*Tham chiếu nhanh — Java 27. Switch expression 14+; pattern switch 21; unnamed `_` 22+; JEP 532 preview trên 27.*

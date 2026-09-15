@@ -1,10 +1,10 @@
 # Lập trình bất đồng bộ
 
-`CompletableFuture`, `Executor`/`Future`, timeout & cancellation, Structured Concurrency (preview), virtual threads như “blocking async”, và reactive/`Flow` ngắn — **nhắm Java 25 LTS**.
+`CompletableFuture`, `Executor`/`Future`, timeout & cancellation, Structured Concurrency (preview), virtual threads như “blocking async”, và reactive/`Flow` ngắn — **nhắm Java 27**.
 
-Java không có `async`/`await` như C#, nhưng có **`CompletableFuture`**, thread pools, và (từ Loom) **virtual threads** khiến mô hình “blocking per request” trở lại thực dụng. Structured Concurrency vẫn **preview** trong Java 25 ([JEP 505](https://openjdk.org/jeps/505)).
+Java không có `async`/`await` như C#, nhưng có **`CompletableFuture`**, thread pools, và (từ Loom) **virtual threads** khiến mô hình “blocking per request” trở lại thực dụng. Structured Concurrency vẫn **preview** trong Java 27 ([JEP 533](https://openjdk.org/jeps/533)).
 
-Xem thêm: [threading.md](threading.md) (VT, pinning, Scoped Values, JMM, `StructuredTaskScope`) · [exceptions.md](exceptions.md) (`InterruptedException`, unwrap) · [streams.md](streams.md) (parallel / Gatherers) · [java25.md](java25.md) (LTS / preview).
+Xem thêm: [threading.md](threading.md) (VT, pinning, Scoped Values, JMM, `StructuredTaskScope`) · [exceptions.md](exceptions.md) (`InterruptedException`, unwrap) · [streams.md](streams.md) (parallel / Gatherers).
 
 ---
 
@@ -20,7 +20,7 @@ Xem thêm: [threading.md](threading.md) (VT, pinning, Scoped Values, JMM, `Struc
   - [3.5 Pitfalls `CompletableFuture`](#35-pitfalls-completablefuture)
 - [4. Cancellation \& timeout](#4-cancellation--timeout)
 - [5. Virtual threads: “blocking async” thực dụng](#5-virtual-threads-blocking-async-thực-dụng)
-- [6. JEP 505 — Structured Concurrency (Fifth Preview trong 25)](#6-jep-505--structured-concurrency-fifth-preview-trong-25)
+- [6. JEP 533 — Structured Concurrency (Seventh Preview trong 27)](#6-jep-533--structured-concurrency-seventh-preview-trong-27)
 - [7. Reactive / `Flow` — overview thực dụng](#7-reactive--flow--overview-thực-dụng)
 - [8. So sánh lựa chọn](#8-so-sánh-lựa-chọn)
 - [9. Pitfalls](#9-pitfalls)
@@ -49,7 +49,7 @@ try (var exec = Executors.newVirtualThreadPerTaskExecutor()) {
 CompletableFuture<String> body = CompletableFuture.supplyAsync(() -> fetch(), exec);
 ```
 
-> Java 25: ưu tiên VT + blocking rõ ràng; CF khi API/composition đòi hỏi; Structured Concurrency khi preview chấp nhận được — [threading.md](threading.md) §9.
+> Java 27: ưu tiên VT + blocking rõ ràng; CF khi API/composition đòi hỏi; Structured Concurrency khi preview chấp nhận được — [threading.md](threading.md) §9.
 
 ---
 
@@ -253,7 +253,7 @@ CompletableFuture<Pair<A, B>> both =
           });
 ```
 
-Trên Java 25 với preview: `StructuredTaskScope` làm cancel sibling **theo policy** — ít lỗi hơn tự quản CF — [threading.md](threading.md) §9.
+Trên Java 27 với preview: `StructuredTaskScope` làm cancel sibling **theo policy** — ít lỗi hơn tự quản CF — [threading.md](threading.md) §9.
 
 ### 4.4 `get` + interrupt
 
@@ -298,16 +298,16 @@ Khi nào vẫn cần `CompletableFuture`?
 
 ---
 
-## 6. JEP 505 — Structured Concurrency (Fifth Preview trong 25)
+## 6. JEP 533 — Structured Concurrency (Seventh Preview trong 27)
 
-> **PREVIEW** — cần `--enable-preview`. API có thể đổi ở bản sau (JEP 505 = Fifth Preview). Không khóa API nội bộ dài hạn nếu chưa sẵn sàng theo dõi thay đổi. Bản đầy đủ hơn (Joiner, Scoped Values, so sánh bảng): [threading.md](threading.md) §9 · [java25.md](java25.md).
+> **PREVIEW** — cần `--enable-preview`. API có thể đổi ở bản sau (JEP 533 = Seventh Preview). Không khóa API nội bộ dài hạn nếu chưa sẵn sàng theo dõi thay đổi. Bản đầy đủ hơn (Joiner, Scoped Values, so sánh bảng): [threading.md](threading.md) §9.
 
 **Ý tưởng**: nhóm subtasks đồng thời như **một đơn vị** — lifetime lexically scoped; lỗi / hủy lan đúng cây task; dễ quan sát hơn `ExecutorService` “rời”.
 
-API Java 25: mở scope bằng **static factory** `StructuredTaskScope.open(...)`.
+API: mở scope bằng **static factory** `StructuredTaskScope.open(...)` (từ 25). Java 27: `Joiner` có type parameter exception `R_X`; `timeout()` thay `onTimeout()`.
 
 ```java
-// javac/java --enable-preview --release 25
+// javac/java --enable-preview --release 27
 
 Response handle() throws InterruptedException {
     try (var scope = StructuredTaskScope.open()) {
@@ -331,7 +331,7 @@ Response handle() throws InterruptedException {
 - Kết hợp tốt với **virtual threads** + **Scoped Values** (child inherit bindings).
 
 ```java
-// Pseudocode — tham khảo JEP 505 / javadoc bản JDK 25 chính xác
+// Pseudocode — tham khảo JEP 533 / javadoc bản JDK 27
 // try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) { ... }
 ```
 
@@ -341,11 +341,11 @@ So với `CompletableFuture.allOf`:
 |--|------------|------------------------|
 | Lifetime | Không buộc hierarchical | Lexical scope bắt buộc |
 | Cancel siblings | Thủ công | Theo Joiner |
-| Preview? | Stable | **Preview trong 25** |
+| Preview? | Stable | **Preview trong 27** |
 | Kết hợp VT | Có | Thiết kế cho VT |
 
 ```text
-javac --enable-preview --release 25 Main.java
+javac --enable-preview --release 27 Main.java
 java  --enable-preview Main
 ```
 
@@ -384,7 +384,7 @@ Flow.Publisher<Item> publisher = subscriber -> {
 };
 ```
 
-> Stack Java 25 điển hình: **VT + structured concurrency (khi final / preview OK)**; reactive khi hệ sinh thái / backpressure thật sự cần.
+> Stack Java 27 điển hình: **VT + structured concurrency (khi final / preview OK)**; reactive khi hệ sinh thái / backpressure thật sự cần.
 
 ---
 
@@ -413,7 +413,7 @@ Flow.Publisher<Item> publisher = subscriber -> {
 6. **Nuốt lỗi trong `exceptionally`** — fallback không log / không metrics.
 7. **Cancel không hợp tác** — task bỏ qua interrupt → `cancel(true)` vô ích.
 8. **Reactive “cho hiện đại”** khi chỉ cần vài VT fan-out — phức tạp thừa.
-9. **Structured Concurrency trên prod** mà quên `--enable-preview` / API còn đổi (JEP 505).
+9. **Structured Concurrency trên prod** mà quên `--enable-preview` / API còn đổi (JEP 533).
 10. **Số VT >> DB pool** — hết connection, timeout hàng loạt; giới hạn ở resource, không ở “pool VT”.
 
 ---
@@ -452,8 +452,9 @@ Flow.Publisher<Item> publisher = subscriber -> {
 | 9 | `completeOnTimeout` / `orTimeout` (CF) |
 | 21 | Virtual threads final — blocking async thực dụng |
 | 21–24 | Structured Concurrency preview nhiều vòng |
-| **25 LTS** | JEP 505 Fifth Preview; Scoped Values final hỗ trợ context trong scope — [threading.md](threading.md) |
+| **25 LTS** | JEP 505 Fifth Preview; Scoped Values final — [threading.md](threading.md) |
+| **27** | JEP 533 Seventh Preview |
 
 ---
 
-*JEP 505: [Structured Concurrency (Fifth Preview)](https://openjdk.org/jeps/505). Virtual threads: [JEP 444](https://openjdk.org/jeps/444). CompletableFuture: `java.util.concurrent`.*
+*JEP 533: [Structured Concurrency (Seventh Preview)](https://openjdk.org/jeps/533). Virtual threads: [JEP 444](https://openjdk.org/jeps/444). CompletableFuture: `java.util.concurrent`.*

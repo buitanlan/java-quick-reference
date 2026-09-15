@@ -2,14 +2,14 @@
 
 *(Class, inheritance, sealed, records, enums, Object)*
 
-Tài liệu tham chiếu OOP Java theo thực hành **Java 25 LTS**: class/object, thứ tự khởi tạo, kế thừa & đa hình,
+Tài liệu tham chiếu OOP Java theo thực hành **Java 27**: class/object, thứ tự khởi tạo, kế thừa & đa hình,
 sealed types, interface (default/diamond), composition, records, enums, nested classes, `equals`/`hashCode`,
 và các bẫy thường gặp. Mọi thứ (trừ primitive) gắn với object trên heap; mọi class kế thừa (trực tiếp/gián tiếp)
 từ `java.lang.Object`.
 
 Cross-link: [typesystem.md](typesystem.md) · [methods.md](methods.md) · [keywords.md](keywords.md) ·
 [lambdas-functional.md](lambdas-functional.md) · [collections-generics.md](collections-generics.md) ·
-[threading.md](threading.md) · [java25.md](java25.md)
+[threading.md](threading.md)
 
 ---
 
@@ -207,7 +207,7 @@ public class Child extends SafeBase {
 }
 ```
 
-> **Lưu ý**: Trước JEP 513, validate trước `super` thường phải “nhét” vào biểu thức đối số (`super(requirePositive(x), ...)`) — khó đọc. Flexible bodies giải quyết đúng vấn đề đó. Chi tiết Java 25: [java25.md](java25.md).
+> **Lưu ý**: Trước JEP 513, validate trước `super` thường phải “nhét” vào biểu thức đối số (`super(requirePositive(x), ...)`) — khó đọc. Flexible bodies (final từ Java 25) giải quyết đúng vấn đề đó.
 
 ---
 
@@ -888,7 +888,7 @@ synchronized (lock) {
 }
 ```
 
-**Object layout (tóm tắt):** mỗi instance trên HotSpot có **object header** + fields (và padding alignment). Nhiều object nhỏ → header chiếm tỷ lệ đáng kể. **JEP 519 — Compact Object Headers** (Java 25) là *product* nhưng **chưa mặc định** — bật `-XX:+UseCompactObjectHeaders`. Chi tiết: [typesystem.md](typesystem.md) §2.1 · [java25.md](java25.md).
+**Object layout (tóm tắt):** mỗi instance trên HotSpot có **object header** + fields (và padding alignment). Nhiều object nhỏ → header chiếm tỷ lệ đáng kể. **JEP 534** (Java 27) bật **Compact Object Headers mặc định** (64-bit trên 64-bit; tắt bằng `-XX:-UseCompactObjectHeaders`). Chi tiết: [typesystem.md](typesystem.md) §2.1.
 
 ---
 
@@ -925,4 +925,4 @@ Checklist nhanh:
 
 ---
 
-*Tham chiếu Java 25 LTS — Flexible Constructor Bodies: [JEP 513](https://openjdk.org/jeps/513); Compact Object Headers: [JEP 519](https://openjdk.org/jeps/519).*
+*Tham chiếu Java 27 — Flexible Constructor Bodies: [JEP 513](https://openjdk.org/jeps/513); Compact Object Headers mặc định: [JEP 534](https://openjdk.org/jeps/534).*

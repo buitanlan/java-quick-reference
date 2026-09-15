@@ -4,12 +4,12 @@ Java là ngôn ngữ **statically typed** / **strongly typed**: mọi biến, th
 biên dịch (trừ các lỗ hổng cố ý như raw types / unchecked cast). Hệ thống kiểu gồm **primitive types**,
 **reference types**, và lớp đặc biệt quanh `Object`, mảng, generics (erasure), cùng suy luận cục bộ `var`.
 
-> Tài liệu nhắm **Java 25 LTS**; tính năng theo phiên bản được ghi rõ (Java 8 → 25) — xem [ma trận ở cuối](#18-ma-trận-tính-năng-theo-phiên-bản-java-8--25).
+> Tài liệu nhắm **Java 27**; tính năng theo phiên bản được ghi rõ (Java 8 → 27) — xem [ma trận ở cuối](#18-ma-trận-tính-năng-theo-phiên-bản-java-8--27).
 >
 > Liên quan: [oop.md](oop.md) · [collections-generics.md](collections-generics.md) · [literals.md](literals.md) ·
-> [operators.md](operators.md) · [keywords.md](keywords.md) · [java25.md](java25.md)
+> [operators.md](operators.md) · [keywords.md](keywords.md)
 
-Baseline thực hành hiện đại (Java 25 LTS): records, sealed types, pattern matching cho `instanceof`/`switch`,
+Baseline thực hành hiện đại (Java 27): records, sealed types, pattern matching cho `instanceof`/`switch`,
 virtual threads — dùng như mặc định khi nói “code hiện tại”. Value types (Project Valhalla) chỉ nhắc như hướng tương lai.
 
 ---
@@ -20,11 +20,13 @@ virtual threads — dùng như mặc định khi nói “code hiện tại”. V
   - [Mục lục](#mục-lục)
   - [1. Tổng quan hệ thống kiểu \& JVM](#1-tổng-quan-hệ-thống-kiểu--jvm)
   - [2. Bộ nhớ: Stack / Heap, GC \& escape analysis](#2-bộ-nhớ-stack--heap-gc--escape-analysis)
-    - [2.1 Generational Shenandoah (JEP 521) \& Compact Object Headers (JEP 519)](#21-generational-shenandoah-jep-521--compact-object-headers-jep-519)
+    - [2.1 GC, G1 mặc định \& Compact Object Headers](#21-gc-g1-mặc-định--compact-object-headers)
     - [2.2 Escape analysis \& scalar replacement](#22-escape-analysis--scalar-replacement)
     - [2.3 FFM / native memory (overview)](#23-ffm--native-memory-overview)
   - [3. Primitive vs reference](#3-primitive-vs-reference)
   - [4. Definite assignment \& blank `final`](#4-definite-assignment--blank-final)
+    - [4.1 JEP 500 — Prepare to Make Final Mean Final (từ 26)](#41-jep-500--prepare-to-make-final-mean-final-từ-26)
+    - [4.2 Lazy Constants (preview JEP 531)](#42-lazy-constants-preview-jep-531)
   - [5. Boxing / unboxing \& wrapper types](#5-boxing--unboxing--wrapper-types)
     - [5.1 Bẫy — Integer cache \& `==` trên wrappers](#51-bẫy--integer-cache---trên-wrappers)
   - [6. Mảng (`T[]`)](#6-mảng-t)
@@ -39,14 +41,14 @@ virtual threads — dùng như mặc định khi nói “code hiện tại”. V
   - [10. Identity (`==`) vs `equals` vs `compareTo`](#10-identity--vs-equals-vs-compareto)
   - [11. Records, sealed, enums (trong bức tranh kiểu)](#11-records-sealed-enums-trong-bức-tranh-kiểu)
   - [12. Kiểm tra kiểu: `instanceof` pattern matching](#12-kiểm-tra-kiểu-instanceof-pattern-matching)
-    - [12.1 Preview — Primitive patterns (JEP 507)](#121-preview--primitive-patterns-jep-507)
+    - [12.1 Preview — Primitive patterns (JEP 532)](#121-preview--primitive-patterns-jep-532)
   - [13. Ép kiểu \& chuyển đổi số](#13-ép-kiểu--chuyển-đổi-số)
     - [13.1 Bảng widening / narrowing (primitive)](#131-bảng-widening--narrowing-primitive)
   - [14. Reflection, `Class`, TypeToken \& `MethodHandles`](#14-reflection-class-typetoken--methodhandles)
   - [15. Value types — ngữ cảnh tương lai](#15-value-types--ngữ-cảnh-tương-lai)
   - [16. Sơ đồ type tree (ASCII)](#16-sơ-đồ-type-tree-ascii)
   - [17. Pitfalls \& checklist](#17-pitfalls--checklist)
-  - [18. Ma trận tính năng theo phiên bản (Java 8 → 25)](#18-ma-trận-tính-năng-theo-phiên-bản-java-8--25)
+  - [18. Ma trận tính năng theo phiên bản (Java 8 → 27)](#18-ma-trận-tính-năng-theo-phiên-bản-java-8--27)
 
 ---
 
@@ -86,18 +88,17 @@ void demo() {
 }
 ```
 
-GC HotSpot phổ biến: **G1** (mặc định nhiều bản), ZGC, Shenandoah, Parallel — chọn bằng `-XX:+UseG1GC`, v.v.
+GC HotSpot: **G1 là mặc định mọi môi trường** từ Java 27 ([JEP 523](https://openjdk.org/jeps/523)); ZGC, Shenandoah, Parallel vẫn chọn được bằng flag.
 
-### 2.1 Generational Shenandoah (JEP 521) & Compact Object Headers (JEP 519)
+### 2.1 GC, G1 mặc định & Compact Object Headers
 
-Java 25 gắn với các cải tiến runtime đáng chú ý (không đổi cú pháp ngôn ngữ):
+Runtime đáng chú ý (không đổi cú pháp ngôn ngữ):
 
-- **JEP 521 — Generational Shenandoah**: Shenandoah theo thế hệ (young/old) nhằm giảm pause và chi phí trên workload
-  cấp phát ngắn sống — bật/cấu hình theo flag JVM của bản phát hành.
-- **JEP 519 — Compact Object Headers**: product feature (không còn experimental). **Chưa** mặc định trên JDK 25 —
-  bật `-XX:+UseCompactObjectHeaders`. Header nhỏ hơn → footprint / locality tốt hơn với nhiều object nhỏ.
+- **JEP 523 (27) — G1 default everywhere:** G1 là collector mặc định trên mọi cấu hình được hỗ trợ (trước đây một số môi trường nhỏ chọn Serial).
+- **JEP 521 — Generational Shenandoah** (từ 25): Shenandoah theo thế hệ — bật/cấu hình theo flag JVM.
+- **JEP 534 (27) — Compact Object Headers by default:** header 64-bit trên 64-bit (product từ JEP 519 / JDK 25). Tắt layout cũ: `-XX:-UseCompactObjectHeaders`.
 
-Thực hành: chọn GC theo latency/throughput; đo bằng `-Xlog:gc*` / JFR — không đoán mù. Chi tiết LTS: [java25.md](java25.md).
+Thực hành: chọn GC theo latency/throughput; đo bằng `-Xlog:gc*` / JFR — không đoán mù.
 
 ### 2.2 Escape analysis & scalar replacement
 
@@ -257,6 +258,38 @@ void localBlank(boolean flag) {
 - Pattern variables (`instanceof String s`) cũng tuân definite assignment / scope theo luồng điều kiện — xem [§12](#12-kiểm-tra-kiểu-instanceof-pattern-matching).
 - Chi tiết `final` trên class/method/field: [oop.md](oop.md), [keywords.md](keywords.md).
 
+### 4.1 JEP 500 — Prepare to Make Final Mean Final (từ 26)
+
+`final` field **vẫn có thể** bị ghi lại bằng deep reflection (`Field.setAccessible` + `set`) — phá JMM / constant-folding. Từ **Java 26**, mutation bất hợp pháp **cảnh báo** mặc định (`--illegal-final-field-mutation=warn`); bản sau sẽ `deny` (ném `IllegalAccessException`).
+
+```text
+java --enable-final-field-mutation=ALL-UNNAMED ...
+java --illegal-final-field-mutation=deny ...   # tương lai / test cứng
+```
+
+- Record / hidden class vốn đã cấm mutate final qua reflection.
+- Serialization library vẫn có đường hẹp; **đừng** dựa `Field.set` để “cấu hình” object bất biến.
+- JEP: [https://openjdk.org/jeps/500](https://openjdk.org/jeps/500)
+
+### 4.2 Lazy Constants (preview JEP 531)
+
+**Preview** trên Java 27 ([JEP 531](https://openjdk.org/jeps/531) — Third Preview; đổi tên từ Stable Values / JEP 502). Holder bất biến khởi tạo **lười**, JVM vẫn có thể constant-fold như `final` nếu field chứa `LazyConstant` là `final`. Cần `--enable-preview`.
+
+```java
+static final LazyConstant<Logger> LOG =
+        LazyConstant.of(() -> Logger.getLogger("app"));
+
+void handle() {
+    LOG.get().info("ok"); // init tối đa một lần, kể cả đa luồng
+}
+
+static final List<Worker> POOL = List.ofLazy(4, _ -> new Worker());
+static final Set<Option> FLAGS = Set.ofLazy(Set.of(Option.VERBOSE), Application::isOn);
+```
+
+- Không dùng `null` làm giá trị computed.
+- Khác `ScopedValue`: lazy constant là **state ứng dụng**; ScopedValue là **context theo call-chain**.
+
 ---
 
 ## 5. Boxing / unboxing & wrapper types
@@ -379,7 +412,7 @@ khi có `java.util.concurrent`), `clone` (protected, dễ sai — ưu tiên copy
 - Immutable; literal vào pool; `+` biên dịch thành `StringBuilder`/`StringConcatFactory`.
 - So sánh nội dung: `equals` / `contentEquals`; không dùng `==` trừ khi cố ý intern.
 - Text blocks (Java 15+): `""" ... """` — xem [literals.md](literals.md).
-- **String templates** (`STR."…\{x}"`) từng preview (21–23) rồi **rút lại** — **không** có trong Java 25.
+- **String templates** (`STR."…\{x}"`) từng preview (21–23) rồi **rút lại** — **không** có trong Java 27.
   Dùng `formatted()`, `MessageFormat`, text block, hoặc `StringBuilder`.
 
 ```java
@@ -622,7 +655,7 @@ Chi tiết cú pháp / compact ctor / nested types: [oop.md](oop.md).
 ## 12. Kiểm tra kiểu: `instanceof` pattern matching
 
 ```java
-Object o = "Java 25";
+Object o = "Java 27";
 
 // Cũ
 if (o instanceof String) {
@@ -653,22 +686,21 @@ double area(Shape shape) {
 ```
 
 - Pattern matching thay cast thủ công → ít `ClassCastException` do sai nhánh.
-- Reference type patterns + sealed exhaustiveness là thực hành chính trên Java 25 LTS (final).
+- Reference type patterns + sealed exhaustiveness là thực hành chính trên Java 27 (final).
 
-### 12.1 Preview — Primitive patterns (JEP 507)
+### 12.1 Preview — Primitive patterns (JEP 532)
 
-> **Java 25 — Preview** ([JEP 507](https://openjdk.org/jeps/507)): primitive types trong pattern contexts;
+> **Java 27 — Fifth Preview** ([JEP 532](https://openjdk.org/jeps/532)): primitive types trong pattern contexts;
 > `instanceof` / `switch` làm việc với mọi primitive. **Không** bật mặc định — cần `--enable-preview`.
-> Chi tiết LTS: [java25.md](java25.md).
 
 ```java
-// Cần: javac --enable-preview --release 25 ...
+// Cần: javac --enable-preview --release 27 ...
 //       java  --enable-preview ...
 
 static String describe(Object value) {
     return switch (value) {
         case Integer i when i > 0 -> "pos int";
-        case int i when i < 0 -> "neg int (unbox + pattern)"; // minh họa ý tưởng JEP 507
+        case int i when i < 0 -> "neg int (unbox + pattern)"; // minh họa ý tưởng JEP 532
         case double d -> "double " + d;
         case null -> "null";
         default -> "other";
@@ -682,7 +714,7 @@ static boolean fitsByte(int n) {
 ```
 
 - Mục tiêu: thay cast hẹp “câm” (`(byte) n`) bằng kiểm tra **exact** trong pattern.
-- Production LTS: coi là opt-in; API public tránh phụ thuộc preview trừ khi team chấp nhận đổi qua các JDK tiếp theo (JEP 530+ trên bản sau).
+- Production: coi là opt-in; API public tránh phụ thuộc preview trừ khi team chấp nhận đổi qua các JDK tiếp theo.
 
 ---
 
@@ -793,10 +825,10 @@ String out = (String) mh.invokeExact("a", "b"); // "ab"
 ## 15. Value types — ngữ cảnh tương lai
 
 Project **Valhalla** hướng tới value/identity-free types để mang lại “primitive-like” cho user types và specialized
-generics (`List<int>`). **Java 25 LTS** vẫn lấy mô hình hiện tại: 8 primitives + references + boxing.
+generics (`List<int>`). **Java 27** vẫn lấy mô hình hiện tại: 8 primitives + references + boxing.
 
 Khi đọc tài liệu cũ/mới: đừng viết production API phụ thuộc preview Valhalla trừ khi team chủ động opt-in preview
-và chấp nhận breaking changes. Theo dõi [java25.md](java25.md) / OpenJDK Valhalla khi cần cập nhật.
+và chấp nhận breaking changes. Theo dõi OpenJDK Valhalla khi cần cập nhật.
 
 ---
 
@@ -848,9 +880,10 @@ Values
 | `var` + diamond | `ArrayList<Object>` bất ngờ | Chỉ rõ `<T>` hoặc target type |
 | Narrowing im lặng | Sai số / compound `+=` | Cast tường minh; `*Exact` |
 | `equals` vs `compareTo` | `TreeMap` lệch `HashMap` | Giữ hợp đồng nhất quán |
-| Preview JEP 507 | Code không chạy nếu thiếu `--enable-preview` | Tách module preview |
+| Preview JEP 532 | Code không chạy nếu thiếu `--enable-preview` | Tách module preview |
+| `Field.set` lên `final` | Warning JDK 26+ (JEP 500) | `--enable-final-field-mutation` hoặc bỏ mutate |
 
-**Checklist thực hành Java 25**
+**Checklist thực hành Java 27**
 
 - Ưu tiên primitive trong hot path; wrapper khi cần collections/generics/null.
 - Dùng `record` + `sealed` + pattern `instanceof`/`switch` cho mô hình dữ liệu.
@@ -859,11 +892,11 @@ Values
 - So sánh: primitive/`enum` có thể `==`; object → `equals`; sắp xếp → `compareTo`/`Comparator`.
 - Đo GC/footprint (Shenandoah generational, compact headers) và allocation (EA) khi tối ưu dịch vụ lớn —
   tách khỏi thiết kế API kiểu.
-- Preview (primitive patterns) chỉ opt-in — xem [java25.md](java25.md).
+- Preview (primitive patterns / Lazy Constants) chỉ opt-in.
 
 ---
 
-## 18. Ma trận tính năng theo phiên bản (Java 8 → 25)
+## 18. Ma trận tính năng theo phiên bản (Java 8 → 27)
 
 | Version | Liên quan hệ thống kiểu |
 |---|---|
@@ -879,8 +912,10 @@ Values
 | **18–19** | Pattern switch / record patterns tiếp tục preview |
 | **20** | Record patterns / pattern switch tiến hóa |
 | **21 LTS** | Pattern matching for `switch` **final**; record patterns **final**; unnamed patterns/vars *(preview)*; sequenced collections |
-| **22** | Unnamed variables & patterns **final**; string templates *(preview — **rút lại**, không có ở 25)* |
+| **22** | Unnamed variables & patterns **final**; string templates *(preview — **rút lại**, không có ở 25+)* |
 | **23–24** | Primitive types in patterns *(preview, JEP 455/488)*; markdown docs… |
-| **25 LTS** | Flexible constructors **final** (JEP 513); Scoped Values **final**; compact source/main; module import; **JEP 507** primitive patterns *(preview)*; Compact Object Headers (JEP 519); Generational Shenandoah (JEP 521) |
+| **25 LTS** | Flexible constructors **final** (JEP 513); Scoped Values **final**; compact source/main; module import; Compact Object Headers **product** (JEP 519, chưa default); primitive patterns *(preview JEP 507)* |
+| **26** | JEP 500: cảnh báo mutate `final` qua reflection; HTTP/3 `HttpClient`; Lazy Constants *(preview, ex Stable Values)*; primitive patterns *(preview JEP 530)* |
+| **27** | Compact Object Headers **mặc định** (JEP 534); G1 default everywhere (JEP 523); primitive patterns **Fifth Preview** (JEP 532); Lazy Constants **Third Preview** (JEP 531) |
 
-Baseline tài liệu này = **Java 25 LTS** (final language features + ghi chú preview rõ ràng).
+Baseline tài liệu này = **Java 27** (final language features + ghi chú preview rõ ràng). LTS gần nhất: **25**.

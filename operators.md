@@ -1,12 +1,11 @@
 # Toán tử (Operators) trong Java
 
-Tài liệu tham chiếu toán tử Java theo thực hành **Java 25 LTS**: số học, quan hệ, logic, bit, gán,
+Tài liệu tham chiếu toán tử Java theo thực hành **Java 27**: số học, quan hệ, logic, bit, gán,
 `instanceof` (pattern), cast, `?:`, lambda `->`, method reference `::`, `new`, truy cập `.` / `[]`.
 Không có con trỏ / `*` `&` kiểu C.
 
 > Cross-link: [typesystem.md](typesystem.md) (`==` vs `equals`) · [statements.md](statements.md) (switch / patterns) ·
-> [literals.md](literals.md) · [lambdas-functional.md](lambdas-functional.md) · [keywords.md](keywords.md) ·
-> [java25.md](java25.md)
+> [literals.md](literals.md) · [lambdas-functional.md](lambdas-functional.md) · [keywords.md](keywords.md)
 
 ---
 
@@ -257,7 +256,7 @@ if (o instanceof String s && s.length() > 3) {
 ```
 
 Switch patterns, sealed exhaustiveness, record patterns: [statements.md](statements.md).
-Primitive patterns (preview JEP 507): [statements.md §6](statements.md#6-pattern-matching--jep-507-preview) · [java25.md](java25.md).
+Primitive patterns (preview JEP 532): [statements.md §6](statements.md#6-pattern-matching--jep-532-preview).
 
 ---
 
@@ -407,8 +406,8 @@ Checklist:
 | [literals.md](literals.md) | Literal số, text block |
 | [lambdas-functional.md](lambdas-functional.md) | `->` `::` |
 | [oop.md](oop.md) | `equals` / `hashCode` |
-| [java25.md](java25.md) | Pattern preview / LTS notes |
+| [statements.md](statements.md) | Pattern preview (JEP 532) |
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. Precedence JLS ổn định; pattern `instanceof` từ 16; switch expression từ 14.*
+*Tham chiếu nhanh — Java 27. Precedence JLS ổn định; pattern `instanceof` từ 16; switch expression từ 14.*

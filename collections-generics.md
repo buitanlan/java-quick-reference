@@ -3,12 +3,11 @@
 *(Collection hierarchy, List/Set/Map/Deque, generics, Sequenced Collections)*
 
 Java Collections Framework (`java.util`) là nền tảng xử lý dữ liệu in-memory. Generics (từ Java 5) mang
-type-safety compile-time; erasure giữ tương thích bytecode. Tài liệu nhắm **Java 25 LTS** (Sequenced Collections
+type-safety compile-time; erasure giữ tương thích bytecode. Tài liệu nhắm **Java 27** (Sequenced Collections
 ổn định từ 21).
 
 > Cross-link: [typesystem.md](typesystem.md) (PECS / erasure tổng quát) · [streams.md](streams.md) ·
-> [oop.md](oop.md) (`equals`/`hashCode`) · [threading.md](threading.md) · [lambdas-functional.md](lambdas-functional.md) ·
-> [java25.md](java25.md)
+> [oop.md](oop.md) (`equals`/`hashCode`) · [threading.md](threading.md) · [lambdas-functional.md](lambdas-functional.md)
 
 ---
 
@@ -527,4 +526,4 @@ record BadKey(StringBuilder id) { // mutable component — nguy hiểm làm key
 
 ---
 
-*Java 25 LTS — Sequenced Collections ổn định từ 21; generics erasure không đổi.*
+*Java 27 — Sequenced Collections ổn định từ 21; generics erasure không đổi.*

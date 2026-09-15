@@ -1,13 +1,13 @@
 # Hàm Main
 
 Mỗi chương trình Java độc lập cần một điểm vào (entry point) để JVM khởi chạy. Điểm vào cổ điển là
-`public static void main(String[] args)` trên một class có tên. Từ **Java 25 LTS**, **JEP 512 Compact Source Files
+`public static void main(String[] args)` trên một class có tên. Từ **Java 27**, **JEP 512 Compact Source Files
 and Instance Main Methods** đã trở thành tính năng chính thức: có thể viết chương trình đơn giản bằng *unnamed class*,
 *instance main*, và cú pháp launch rút gọn — phù hợp script/demo — rồi chuyển dần sang class có tên khi dự án lớn lên.
 
 Tài liệu này là tham khảo thực hành: signature hợp lệ, launcher, mã thoát, và lộ trình từ compact source sang named class.
 
-> Cross-link: [java25.md](java25.md) (JEP 512) · [packages-modules.md](packages-modules.md) · [methods.md](methods.md) ·
+> Cross-link: [packages-modules.md](packages-modules.md) · [methods.md](methods.md) ·
 > [oop.md](oop.md) · [threading.md](threading.md) / [async.md](async.md) (công việc trong main)
 
 ---
@@ -181,24 +181,24 @@ static void main() {
 }
 ```
 
-Launcher (Java 25) chọn candidate main theo thứ tự ưu tiên đã chuẩn hóa trong JEP (tóm tắt thực dụng):
+Launcher (Java 27, JEP 512 từ 25) chọn candidate main theo thứ tự ưu tiên đã chuẩn hóa trong JEP (tóm tắt thực dụng):
 
 1. Ưu tiên `main` với `String[]`/`String...` nếu có.
 2. Cho phép instance main: JVM tạo instance (constructor không-arg) rồi gọi.
 3. Cho phép `main()` không tham số trong mô hình compact / flexible launch.
 
-> Chi tiết thứ tự chính xác nên đối chiếu JEP 512 / release notes JDK 25 khi viết tool dựa vào reflection entry point.
+> Chi tiết thứ tự chính xác nên đối chiếu JEP 512 / release notes JDK 27 khi viết tool dựa vào reflection entry point.
 
 ### 5.3 Các dạng main được launcher chấp nhận
 
-Trong hệ sinh thái Java 25 (classic + JEP 512), các dạng thường gặp:
+Trong hệ sinh thái Java 27 (classic + JEP 512), các dạng thường gặp:
 
 ```java
 // Classic — production chuẩn
 public static void main(String[] args) { }
 public static void main(String... args) { }
 
-// Compact / flexible — Java 25
+// Compact / flexible — Java 25+
 void main() { }
 void main(String[] args) { }
 static void main() { }
@@ -214,7 +214,7 @@ JEP 512 kèm class **`java.lang.IO`** (cùng module `java.base`) cho I/O console
 
 ```java
 void main() {
-    IO.println("Hello, Java 25");
+    IO.println("Hello, Java 27");
     String name = IO.readln("Name: ");
     IO.println("hi " + name);
 }
@@ -379,7 +379,7 @@ Checklist migrate:
 ## 10. Best practices
 
 - **Production**: giữ `public static void main(String[] args)` + named class; framework (Spring Boot, Jakarta EE, …) kỳ vọng dạng này.
-- **Java 25**: compact source / instance main cho học, script, prototype; migrate sớm khi cần package, test, module — mục 8.
+- **Java 27**: compact source / instance main (JEP 512, final từ 25) cho học, script, prototype; migrate sớm khi cần package, test, module — mục 8.
 - **Test**: JUnit không gọi main; tách `main` mỏng, logic vào class có thể test.
 - Nhiều main trong project ổn — chỉ class được chỉ định trên CLI / manifest mới chạy.
 
@@ -404,4 +404,4 @@ public final class Application {
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. Classic `main` ổn định từ lâu; compact source & instance main: [JEP 512](https://openjdk.org/jeps/512).*
+*Tham chiếu nhanh — Java 27. Classic `main` ổn định từ lâu; compact source & instance main: [JEP 512](https://openjdk.org/jeps/512).*

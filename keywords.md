@@ -1,12 +1,12 @@
 # Từ khóa (Keywords) trong Java
 
-Tài liệu tham khảo các **từ khóa dành riêng (reserved keywords)** và **từ khóa ngữ cảnh (contextual keywords)** trong **Java 25 LTS**. Mỗi mục gồm mục đích, ví dụ ngắn và ghi chú thực dụng.
+Tài liệu tham khảo các **từ khóa dành riêng (reserved keywords)** và **từ khóa ngữ cảnh (contextual keywords)** trong **Java 27**. Mỗi mục gồm mục đích, ví dụ ngắn và ghi chú thực dụng.
 
-> **Phạm vi:** nhắm **Java 25 LTS** (GA 9/2025). Tính năng nền tảng trước đó (records, sealed, pattern switch, `_`, …) được ghi rõ phiên bản ổn định. Preview cần `--enable-preview` — xem [java25.md](java25.md).
+> **Phạm vi:** nhắm **Java 27** (GA 9/2026). Tính năng nền tảng trước đó (records, sealed, pattern switch, `_`, flexible constructors, `import module`, …) được ghi rõ phiên bản ổn định. Preview cần `--enable-preview`.
 
 > **Lưu ý:** `true`, `false`, `null` là **literal**, không phải keyword theo nghĩa reserved identifier — chúng không dùng làm tên biến/method/class, nhưng về mặt ngữ pháp thuộc nhóm literal chứ không phải keyword.
 
-**Đọc kèm:** [statements.md](statements.md) · [oop.md](oop.md) · [threading.md](threading.md) · [exceptions.md](exceptions.md) · [packages-modules.md](packages-modules.md) · [typesystem.md](typesystem.md) · [operators.md](operators.md) · [java25.md](java25.md)
+**Đọc kèm:** [statements.md](statements.md) · [oop.md](oop.md) · [threading.md](threading.md) · [exceptions.md](exceptions.md) · [packages-modules.md](packages-modules.md) · [typesystem.md](typesystem.md) · [operators.md](operators.md)
 
 ---
 
@@ -31,7 +31,7 @@ Tài liệu tham khảo các **từ khóa dành riêng (reserved keywords)** và
 | **Reserved nhưng không dùng** | `const`, `goto` — dành riêng để tránh xung đột với C/C++, không có nghĩa trong Java. |
 | **Literals** | `true`, `false`, `null` — không phải keyword; xem mục đầu. |
 
-Java 25 LTS kế thừa nhiều tính năng hiện đại: **records**, **sealed classes**, **pattern matching**, **switch expressions**, **virtual threads** (API/`Thread`), **flexible constructor bodies** (JEP 513), và preview như **primitive types in patterns** (JEP 507 — cần `--enable-preview`).
+Java 27 kế thừa nhiều tính năng hiện đại: **records**, **sealed classes**, **pattern matching**, **switch expressions**, **virtual threads** (API/`Thread`), **flexible constructor bodies** (JEP 513), và preview như **primitive types in patterns** (JEP 532 — cần `--enable-preview`).
 
 **Nhóm → file chuyên sâu:**
 
@@ -340,7 +340,8 @@ public final class Utils { }
 - **Field `final`:** blank final phải được **definitely assigned** đúng một lần (ctor / initializer / compact ctor của record). `static final` thường là hằng compile-time nếu kiểu primitive/`String` và khởi tạo bằng hằng.
 - **Local / parameter `final`:** không gán lại; biến **effectively final** (không khai `final` nhưng không gán lại) mới được capture bởi lambda/anonymous class.
 - `final` **không** làm object bất biến — chỉ reference không đổi; nội dung `List`/`array` vẫn mutate được trừ khi dùng unmodifiable / copy / record of immutables.
-- Từ Java 25, **flexible constructor bodies** (JEP 513) cho phép statement trước `super(...)`/`this(...)` với hạn chế (không đọc instance state chưa init) — vẫn phải gán `final` fields đúng quy tắc. Xem [oop.md](oop.md) · [java25.md](java25.md).
+- Từ Java 25, **flexible constructor bodies** (JEP 513) cho phép statement trước `super(...)`/`this(...)` với hạn chế (không đọc instance state chưa init) — vẫn phải gán `final` fields đúng quy tắc. Xem [oop.md](oop.md).
+- **JEP 500 (Java 26+):** deep reflection mutate `final` field **cảnh báo** mặc định; bản sau sẽ cấm trừ khi `--enable-final-field-mutation`. Xem [typesystem.md](typesystem.md) §4.1.
 
 ---
 
@@ -427,7 +428,7 @@ import java.util.List;
 import static java.lang.Math.PI;
 ```
 
-**Ghi chú:** Java 25 thêm **module import** (`import module …`, JEP 511) — xem [packages-modules.md](packages-modules.md) · [java25.md](java25.md).
+**Ghi chú:** Java 25 thêm **module import** (`import module …`, JEP 511) — xem [packages-modules.md](packages-modules.md).
 
 ---
 
@@ -453,7 +454,7 @@ if (!(obj instanceof String s)) {
 - Kết hợp `&&` / early-return để thu hẹp kiểu thay cast `(Type) obj`.
 - Trong **switch** (21+): cùng họ pattern; có thể thêm `when`. Record patterns (21+) phá cấu trúc nested.
 - **Không** thay `==` cho identity; không dùng để so sánh giá trị.
-- Java 25 **preview** JEP 507 — pattern/`instanceof`/`switch` với **primitive types** (bật `--enable-preview`). Xem [typesystem.md](typesystem.md) · [operators.md](operators.md) · [statements.md](statements.md).
+- Java 27 **preview** JEP 532 — pattern/`instanceof`/`switch` với **primitive types** (bật `--enable-preview`). Xem [typesystem.md](typesystem.md) · [operators.md](operators.md) · [statements.md](statements.md).
 
 ---
 
@@ -670,7 +671,7 @@ public void start() {
 
 **Ghi chú:**
 
-- `super(...)` / `this(...)` phải là lời gọi ctor **đúng quy tắc**: trước Java 25 thường là statement đầu tiên; từ **Java 25 (JEP 513)** cho phép prologue trước `super`/`this` (không dùng instance chưa init). Xem [java25.md](java25.md) · [oop.md](oop.md).
+- `super(...)` / `this(...)` phải là lời gọi ctor **đúng quy tắc**: trước Java 25 thường là statement đầu tiên; từ **Java 25 (JEP 513)** cho phép prologue trước `super`/`this` (không dùng instance chưa init). Xem [oop.md](oop.md).
 - `super.field` / `super.method()` truy cập thành viên superclass (kể khi bị hide/override).
 - Default method conflict: `A.super.foo()` chọn implementation từ interface `A`.
 - Trong anonymous/local class, `super` vẫn trỏ superclass của anonymous type.
@@ -695,7 +696,7 @@ int days = switch (month) {
 
 - **Statement** (`switch (x) { case …: … }`): fall-through mặc định với `:`; arrow `->` không fall-through.
 - **Expression** (JEP 361, final Java 14): trả giá trị; nhánh block dùng `yield`; phải exhaustive (hoặc `default` / `throw`).
-- Selector: primitives tích hợp, `String`, `enum`, boxed, và (21+) pattern trên tham chiếu; preview 25: primitive patterns rộng hơn (JEP 507).
+- Selector: primitives tích hợp, `String`, `enum`, boxed, và (21+) pattern trên tham chiếu; preview 27: primitive patterns rộng hơn (JEP 532).
 - Pattern switch + `when` + sealed/record → compiler kiểm tra phủ sóng — giảm `default` “chết”.
 - Đừng mix tư duy C `break` với expression; đừng dùng `continue` xuyên `switch` như vòng lặp.
 - Tài liệu đầy đủ: [statements.md](statements.md).
@@ -1097,11 +1098,12 @@ Danh sách reserved keywords cốt lõi ổn định từ lâu; **tính năng m�
 | **21** | Pattern `switch` + `when`; record patterns; virtual threads (API) | JEP 441, 440; VT không thêm keyword |
 | **22** | Unnamed `_` | JEP 456 |
 | 23–24 | … | Chủ yếu API / preview khác |
-| **25** LTS | Flexible constructor bodies (`this`/`super` prologue) | JEP 513 — không keyword mới |
-| **25** | `import module` | JEP 511 — mở rộng `import` |
-| **25** preview | Primitive types in patterns (`instanceof` / `switch`) | JEP 507 — cần `--enable-preview` |
+| **25** LTS | Flexible constructor bodies; `import module` | JEP 513, JEP 511 |
+| **25** preview | Primitive types in patterns | JEP 507 (tiếp 26/27) |
+| **26** | Cảnh báo mutate `final` qua reflection | JEP 500 |
+| **27** preview | Primitive patterns **Fifth Preview**; Lazy Constants **Third Preview** | JEP 532, JEP 531 |
 
-**`--enable-preview`:** compile và chạy phải cùng bật preview (ví dụ `javac --release 25 --enable-preview …`, `java --enable-preview …`). Không bật thì API/cú pháp preview không dùng được. Theo dõi [java25.md](java25.md) để biết JEP nào còn preview trên bản LTS bạn đang chạy.
+**`--enable-preview`:** compile và chạy phải cùng bật preview (ví dụ `javac --release 27 --enable-preview …`, `java --enable-preview …`). Không bật thì API/cú pháp preview không dùng được.
 
 **Gợi ý nâng tài liệu cũ:**
 
@@ -1118,4 +1120,4 @@ Danh sách reserved keywords cốt lõi ổn định từ lâu; **tính năng m�
 - Reserved keywords **không** làm identifier; contextual (`var`, `record`, `sealed`, `yield`, `when`, module words) chỉ đặc biệt đúng chỗ.
 - `true` / `false` / `null` là **literal**; `_` từ 22 là unnamed, không phải biến thường.
 - High-risk runtime/JMM: `synchronized`, `volatile`, `assert`, `native`, `transient` — đọc kỹ Ghi chú + [threading.md](threading.md) / [exceptions.md](exceptions.md).
-- Học sâu hành vi: [statements.md](statements.md) · [oop.md](oop.md) · [typesystem.md](typesystem.md) · [packages-modules.md](packages-modules.md) · [java25.md](java25.md).
+- Học sâu hành vi: [statements.md](statements.md) · [oop.md](oop.md) · [typesystem.md](typesystem.md) · [packages-modules.md](packages-modules.md).

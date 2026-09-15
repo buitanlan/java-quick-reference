@@ -1,11 +1,10 @@
 # Lambda & Functional interface trong Java
 
 Tài liệu tham khảo **lambda**, **functional interfaces**, **method references**, capture / effectively final,
-checked exceptions trong lambda, và mối liên hệ với `Comparator` / `Optional` trên **Java 25 LTS**.
+checked exceptions trong lambda, và mối liên hệ với `Comparator` / `Optional` trên **Java 27**.
 
 > Cross-link: [methods.md](methods.md) · [statements.md](statements.md) (effectively final) · [streams.md](streams.md) ·
-> [collections-generics.md](collections-generics.md) · [exceptions.md](exceptions.md) · [keywords.md](keywords.md) ·
-> [java25.md](java25.md)
+> [collections-generics.md](collections-generics.md) · [exceptions.md](exceptions.md) · [keywords.md](keywords.md)
 
 ---
 
@@ -430,8 +429,8 @@ public class LambdaCheatSheet {
 | [exceptions.md](exceptions.md) | Wrap checked / cause |
 | [collections-generics.md](collections-generics.md) | `removeIf`, sort |
 | [async.md](async.md) | `CompletableFuture` + lambda |
-| [java25.md](java25.md) | LTS notes |
+| [typesystem.md](typesystem.md) | Target typing |
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. Lambda/method ref từ 8; `var` trong lambda params từ 11; unnamed `_` từ 22.*
+*Tham chiếu nhanh — Java 27. Lambda/method ref từ 8; `var` trong lambda params từ 11; unnamed `_` từ 22.*

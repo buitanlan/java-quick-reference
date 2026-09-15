@@ -1,10 +1,10 @@
 # Thread & Virtual Thread
 
-Platform threads, virtual threads, synchronization, JMM, Scoped Values (JEP 506), Structured Concurrency (preview), và lifecycle executor — **nhắm Java 25 LTS**.
+Platform threads, virtual threads, synchronization, JMM, Scoped Values (JEP 506), Structured Concurrency (preview), và lifecycle executor — **nhắm Java 27**.
 
-Virtual threads final từ **Java 21**; Scoped Values **final** trong Java 25 ([JEP 506](https://openjdk.org/jeps/506)). Structured Concurrency vẫn **preview** ([JEP 505](https://openjdk.org/jeps/505)) — cần `--enable-preview`.
+Virtual threads final từ **Java 21**; Scoped Values **final** từ Java 25 ([JEP 506](https://openjdk.org/jeps/506)). Structured Concurrency vẫn **preview** ([JEP 533](https://openjdk.org/jeps/533) — Seventh Preview trên 27) — cần `--enable-preview`.
 
-Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, reactive) · [keywords.md](keywords.md) (`synchronized`, `volatile`, `transient`…) · [java25.md](java25.md) (LTS / preview) · [exceptions.md](exceptions.md) (`InterruptedException`, unwrap async).
+Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, reactive) · [keywords.md](keywords.md) (`synchronized`, `volatile`, `transient`…) · [exceptions.md](exceptions.md) (`InterruptedException`, unwrap async).
 
 ---
 
@@ -26,7 +26,7 @@ Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, reactive) · [key
   - [6.1 ThreadLocal vs ScopedValue](#61-threadlocal-vs-scopedvalue)
 - [7. Race conditions \& JMM happens-before](#7-race-conditions--jmm-happens-before)
 - [8. Interruption \& joining](#8-interruption--joining)
-- [9. Structured Concurrency (`StructuredTaskScope`) — Java 25 preview](#9-structured-concurrency-structuredtaskscope--java-25-preview)
+- [9. Structured Concurrency (`StructuredTaskScope`) — Java 27 preview](#9-structured-concurrency-structuredtaskscope--java-27-preview)
 - [10. Pitfalls](#10-pitfalls)
 - [11. Best practices](#11-best-practices)
 
@@ -42,7 +42,7 @@ Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, reactive) · [key
 - **Scoped Values** (25 final): context bất biến theo lexical scope — thay nhiều use-case `ThreadLocal`.
 - **Structured Concurrency** (25 preview): fan-out/fan-in có lifetime rõ — chi tiết mục 9 và [async.md](async.md).
 
-> Xu hướng Java 25: viết code **blocking đơn giản** trên virtual threads thay vì callback hell / reactive bắt buộc cho mọi I/O.
+> Xu hướng Java 27: viết code **blocking đơn giản** trên virtual threads thay vì callback hell / reactive bắt buộc cho mọi I/O.
 
 ---
 
@@ -83,7 +83,7 @@ Khi virtual thread **ghim (pin)** carrier, scheduler không thể unmount VT kh�
 | Blocking I/O JDK “ảo hóa” được (`Socket`, `FileChannel`… trên VT) | Unmount | Carrier được giải phóng trong lúc chờ |
 | Busy-spin / CPU thuần | Chiếm carrier | Không pin theo nghĩa monitor, nhưng vẫn “ăn” carrier |
 
-> HotSpot tiếp tục cải thiện pinning qua các bản phát hành — luôn xác nhận hành vi trên JDK bạn deploy. Java 25 vẫn coi `synchronized` dài trên VT là anti-pattern khi contended.
+> HotSpot tiếp tục cải thiện pinning qua các bản phát hành — luôn xác nhận hành vi trên JDK bạn deploy. Java 27 vẫn coi `synchronized` dài trên VT là anti-pattern khi contended.
 
 ### 3.2 Chẩn đoán
 
@@ -453,18 +453,18 @@ t.join(Duration.ofSeconds(5));
 
 ---
 
-## 9. Structured Concurrency (`StructuredTaskScope`) — Java 25 preview
+## 9. Structured Concurrency (`StructuredTaskScope`) — Java 27 preview
 
-> **PREVIEW** trong Java 25 ([JEP 505](https://openjdk.org/jeps/505) — Fifth Preview). Cần `--enable-preview`. API có thể đổi — xem thêm [async.md](async.md) §6 và [java25.md](java25.md).
+> **PREVIEW** trong Java 27 ([JEP 533](https://openjdk.org/jeps/533) — Seventh Preview). Cần `--enable-preview`. API có thể đổi — xem thêm [async.md](async.md) §6.
 
 **Ý tưởng**: nhóm subtasks đồng thời thành **một đơn vị có lifetime lexical** — lỗi / hủy lan theo cây; quan sát cha–con rõ hơn `ExecutorService` rời.
 
 ### 9.1 Pattern cơ bản (fail-fast / join)
 
-API Java 25: mở scope bằng **static factory** `StructuredTaskScope.open(...)`.
+API từ Java 25+: mở scope bằng **static factory** `StructuredTaskScope.open(...)`. Java 27 thêm type parameter `R_X` cho exception của `join()`, và `Joiner.timeout()` thay `onTimeout()`.
 
 ```java
-// javac/java --enable-preview --release 25
+// javac/java --enable-preview --release 27
 
 Response handle() throws InterruptedException {
     try (var scope = StructuredTaskScope.open()) {
@@ -490,12 +490,12 @@ Response handle() throws InterruptedException {
 | Scoped Values | Child **inherit** binding từ parent |
 | Observability | Thread dump phản ánh quan hệ cha–con |
 
-Joiner tùy biến (ý tưởng — xác nhận javadoc JDK 25):
+Joiner tùy biến (ý tưởng — xác nhận javadoc JDK 27):
 
 ```java
-// Pseudocode — tham khảo JEP 505 / javadoc chính xác trên JDK của bạn
+// Pseudocode — tham khảo JEP 533 / javadoc chính xác trên JDK của bạn
 // try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) { ... }
-// try (var scope = StructuredTaskScope.open(Joiner.anySuccessfulResultOrThrow())) { ... }
+// try (var scope = StructuredTaskScope.open(Joiner.anySuccessfulOrThrow())) { ... }
 ```
 
 | Policy (tinh thần) | Hành vi |
@@ -510,12 +510,12 @@ Joiner tùy biến (ý tưởng — xác nhận javadoc JDK 25):
 |--|----------------------------|---------------------------|------------------------|
 | Lifetime | Thủ công | Không hierarchical | Lexical bắt buộc |
 | Cancel siblings | Tự `cancel` | Thủ công | Theo Joiner |
-| Preview? | Stable | Stable | **Preview trong 25** |
+| Preview? | Stable | Stable | **Preview trong 27** |
 | Exception model | `ExecutionException` | `CompletionException` | Theo Joiner / scope |
 | Kết hợp VT + ScopedValue | Có thể | Có thể | Thiết kế cho VT |
 
 ```text
-javac --enable-preview --release 25 Main.java
+javac --enable-preview --release 27 Main.java
 java  --enable-preview Main
 ```
 
@@ -536,7 +536,7 @@ Khi chưa bật preview / cần stable API: fan-out bằng VT executor + hủy t
 9. **Nested locks không thứ tự** — deadlock; thiếu `tryLock` timeout.
 10. **`wait` ngoài vòng `while`** — missed signal / spurious wakeup.
 11. **Giả định goroutine-exit-style sync** — thread kết thúc **không** tự happens-before gì nếu không `join` / handoff.
-12. **Dùng Structured Concurrency trên prod mà quên preview flag / lock API** — JEP 505 vẫn đổi được giữa các bản.
+12. **Dùng Structured Concurrency trên prod mà quên preview flag / lock API** — JEP 533 vẫn đổi được giữa các bản.
 
 ---
 
@@ -564,8 +564,8 @@ Khi chưa bật preview / cần stable API: fan-out bằng VT executor + hủy t
 | `Executors.newVirtualThreadPerTaskExecutor` | Một VT / task + lifecycle |
 | `synchronized` / `ReentrantLock` | Mutual exclusion (+ HB) |
 | `volatile` / atomics | Flag / counter không compound phức tạp |
-| `ScopedValue` | Context bất biến (25 final) |
-| `StructuredTaskScope` | Fan-out có cấu trúc (25 preview) |
+| `ScopedValue` | Context bất biến (25+ final) |
+| `StructuredTaskScope` | Fan-out có cấu trúc (27 preview) |
 | `jdk.tracePinnedThreads` | Chẩn đoán pinning |
 | `CompletableFuture` | Composition async — [async.md](async.md) |
 
@@ -577,8 +577,10 @@ Khi chưa bật preview / cần stable API: fan-out bằng VT executor + hủy t
 | 19+ | `ExecutorService` `AutoCloseable` (`close` → shutdown) |
 | 21 | Virtual threads **final**; `Thread.ofVirtual` / `ofPlatform` |
 | 21–24 | Scoped Values / Structured Concurrency preview nhiều vòng |
-| **25 LTS** | Scoped Values **final** (JEP 506); Structured Concurrency **Fifth Preview** (JEP 505) |
+| **25 LTS** | Scoped Values **final** (JEP 506); Structured Concurrency Fifth Preview (JEP 505) |
+| **26** | Structured Concurrency Sixth Preview (JEP 525); Lazy Constants preview |
+| **27** | Structured Concurrency **Seventh Preview** (JEP 533) |
 
 ---
 
-*Scoped Values: [JEP 506](https://openjdk.org/jeps/506). Virtual threads: [JEP 444](https://openjdk.org/jeps/444). Structured Concurrency: [JEP 505](https://openjdk.org/jeps/505).*
+*Scoped Values: [JEP 506](https://openjdk.org/jeps/506). Virtual threads: [JEP 444](https://openjdk.org/jeps/444). Structured Concurrency: [JEP 533](https://openjdk.org/jeps/533).*

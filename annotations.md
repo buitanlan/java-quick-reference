@@ -3,11 +3,10 @@
 Annotation là cơ chế **metadata** của Java — gắn thông tin vào khai báo (hoặc từ Java 8, cả type use) để compiler,
 tooling, framework và runtime phản ứng. Đây là analogue gần nhất với “preprocessor/metadata attributes” của C#
 (`[Obsolete]`, `[Serializable]`, …), nhưng Java annotation **không** điều khiển `#if` biên dịch có điều kiện;
-chúng mang dữ liệu có cấu trúc, xử lý bởi compiler plugins (APT) hoặc reflection. Tài liệu nhắm **Java 25 LTS**.
+chúng mang dữ liệu có cấu trúc, xử lý bởi compiler plugins (APT) hoặc reflection. Tài liệu nhắm **Java 27**.
 
 > Cross-link: [methods.md](methods.md) (`@Override`, `@SafeVarargs`) · [oop.md](oop.md) (records / components) ·
-> [lambdas-functional.md](lambdas-functional.md) (`@FunctionalInterface`) · [keywords.md](keywords.md) ·
-> [java25.md](java25.md)
+> [lambdas-functional.md](lambdas-functional.md) (`@FunctionalInterface`) · [keywords.md](keywords.md)
 
 ---
 
@@ -409,4 +408,4 @@ public record User(
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. Meta-annotations & APT ổn định từ lâu; `RECORD_COMPONENT` từ 16.*
+*Tham chiếu nhanh — Java 27. Meta-annotations & APT ổn định từ lâu; `RECORD_COMPONENT` từ 16.*

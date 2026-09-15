@@ -2,10 +2,10 @@
 
 *(Pipeline, intermediate/terminal, Collectors, Optional, Gatherers — tương tự LINQ)*
 
-`java.util.stream` (Java 8+) mang phong cách **declarative / functional** để xử lý chuỗi dữ liệu: filter, map, reduce, group — gần với LINQ to Objects trong C#. Tài liệu nhắm **Java 25 LTS** (Gatherers ổn định từ 24).
+`java.util.stream` (Java 8+) mang phong cách **declarative / functional** để xử lý chuỗi dữ liệu: filter, map, reduce, group — gần với LINQ to Objects trong C#. Tài liệu nhắm **Java 27** (Gatherers ổn định từ 24).
 
 > Cross-link: [lambdas-functional.md](lambdas-functional.md) · [collections-generics.md](collections-generics.md) ·
-> [threading.md](threading.md) (parallel / ForkJoin) · [async.md](async.md) · [java25.md](java25.md)
+> [threading.md](threading.md) (parallel / ForkJoin) · [async.md](async.md)
 
 ---
 
@@ -340,7 +340,7 @@ Tự viết gatherer khi cần stateful intermediate phức tạp (debouncing, c
 // Dùng cho hot path chỉ khi API sẵn có chưa đủ
 ```
 
-> Trong Java 25, Gatherers đã **ổn định** (không phải preview). Prefers built-in `Gatherers.*` trước khi custom.
+> Trong Java 24+, Gatherers đã **ổn định** (không phải preview). Prefers built-in `Gatherers.*` trước khi custom.
 
 ---
 
@@ -404,4 +404,4 @@ var q = people.stream()
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. Stream từ 8; `toList()` từ 16; Gatherers final từ 24; parallel vẫn dùng common ForkJoinPool.*
+*Tham chiếu nhanh — Java 27. Stream từ 8; `toList()` từ 16; Gatherers final từ 24; parallel vẫn dùng common ForkJoinPool.*

@@ -1,11 +1,11 @@
 # Literal trong Java
 
-**Literal** là giá trị viết trực tiếp trong mã nguồn. Tài liệu nhắm **Java 25 LTS**: số nguyên/thực,
+**Literal** là giá trị viết trực tiếp trong mã nguồn. Tài liệu nhắm **Java 27**: số nguyên/thực,
 `char`, `String` / **text blocks**, `boolean`, `null`, class literal, enum constants, underscore trong số,
 và liên hệ `_` unnamed trong patterns.
 
 > Cross-link: [typesystem.md](typesystem.md) · [operators.md](operators.md) · [keywords.md](keywords.md) (unnamed `_`) ·
-> [statements.md](statements.md) · [java25.md](java25.md)
+> [statements.md](statements.md)
 
 Java không có `decimal` suffix như C#; số thực mặc định là `double`.
 
@@ -402,8 +402,8 @@ String yaml = """
 | [operators.md](operators.md) | `==` trên literal / pool |
 | [keywords.md](keywords.md) | Unnamed `_` |
 | [statements.md](statements.md) | Pattern / switch với literal & `_` |
-| [java25.md](java25.md) | LTS / language notes |
+| [typesystem.md](typesystem.md) | Kiểu & literal |
 
 ---
 
-*Tham chiếu nhanh — Java 25 LTS. Underscore số từ 7; text blocks từ 15; unnamed `_` từ 22.*
+*Tham chiếu nhanh — Java 27. Underscore số từ 7; text blocks từ 15; unnamed `_` từ 22.*
