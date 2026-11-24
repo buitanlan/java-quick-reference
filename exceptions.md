@@ -95,7 +95,7 @@ public void setAge(int age) {
 }
 ```
 
-**Tranh luận thực dụng:** nhiều codebase hiện đại prefer unchecked + tài liệu rõ; vẫn tôn trọng checked của JDK (`IOException`) hoặc bọc `UncheckedIOException` ở biên API functional/lambda — xem [lambdas-functional.md](lambdas-functional.md) nếu có trong bộ tài liệu.
+**Tranh luận thực dụng:** nhiều codebase hiện đại prefer unchecked + tài liệu rõ; vẫn tôn trọng checked của JDK (`IOException`) hoặc bọc `UncheckedIOException` ở biên API functional/lambda — xem [lambdas-functional.md](lambdas-functional.md).
 
 **Version note:** mô hình checked/unchecked không đổi ở Java 27; thay đổi thực tế nằm ở concurrency (virtual threads, structured concurrency) và API mới quanh stack/diagnostics.
 
@@ -176,6 +176,7 @@ Exception khi `close()` không làm mất exception gốc từ body — chúng t
 - Nếu body hoàn tất bình thường, exception từ lần `close()` thất bại đầu tiên là lỗi chính; các lỗi đóng tiếp theo là suppressed.
 - Nếu khởi tạo resource sau thất bại, các resource đã khởi tạo trước vẫn được đóng. Resource có giá trị `null` được bỏ qua.
 - Java 9+ cho phép `try (reader)` nếu biến `reader` đã khai báo là `final` hoặc effectively final.
+- **NIO.2 `Files` & UTF-8 (JEP 400):** `Files.lines(path)`, `Files.walk(dir)`, `Files.list(dir)` mở file/directory handle bên dưới → **bắt buộc** bọc `try-with-resources` để tránh rò file descriptor. Từ Java 18 (JEP 400), charset mặc định toàn JVM là UTF-8 (`Files.readString`/`writeString` cũng dùng UTF-8). Khi ghép đường dẫn từ input ngoài, luôn kiểm `base.resolve(input).normalize().startsWith(base)` (chống path traversal); ghi file quan trọng nên ghi file tạm cùng thư mục rồi `Files.move(..., ATOMIC_MOVE, REPLACE_EXISTING)`.
 
 ---
 
@@ -233,7 +234,7 @@ catch (IOException e) {
 }
 ```
 
-### 8.3 Sneaky / unchecked wrap
+### 8.3 Unchecked wrap (và cảnh báo sneaky throw)
 
 ```java
 catch (IOException e) {
@@ -241,7 +242,7 @@ catch (IOException e) {
 }
 ```
 
-Hữu ích khi implement `Runnable`/`Function` không cho checked.
+Hữu ích khi implement `Runnable`/`Function` không khai báo checked exception. Tránh kỹ thuật **sneaky throw** (lợi dụng type erasure như `<E extends Throwable> void sneaky(Throwable e) throws E` hoặc `@SneakyThrows`) để ném checked exception mà không bọc — nó phá hợp đồng biên dịch khiến caller không biết cần `catch`.
 
 ### 8.4 Không nuốt exception
 
@@ -381,7 +382,7 @@ String caller = walker.walk(frames ->
 | `SHOW_REFLECT_FRAMES` | Hiện reflection frames |
 | `SHOW_HIDDEN_FRAMES` | Frame ẩn implementation |
 
-Dùng cho diagnostics, security checks nhẹ, caller-sensitive logic — **không** thay exception thông thường cho lỗi nghiệp vụ.
+Dùng cho diagnostics, security checks nhẹ, caller-sensitive logic (`walker.getCallerClass()` tối ưu riêng cho lấy lớp gọi, yêu cầu `RETAIN_CLASS_REFERENCE`) — **không** thay exception thông thường cho lỗi nghiệp vụ.
 
 ---
 
@@ -646,7 +647,7 @@ assertThrows(ValidationException.class, () -> service.save(bad));
 2. **`return` / `throw` trong `finally`** — che exception/return từ `try`; cấm trong style hiện đại.
 3. **Mất cause** — `new X(e.getMessage())` hoặc `new X()` sau khi catch → mất gốc khi debug.
 4. **`catch (Exception)` quá sớm** — bắt tổng quát giữa tầng rồi “xử lý chung” khiến caller không phân biệt NotFound / validation / I/O.
-5. **Assert vs validation** — `assert` tắt được (`-da`); precondition API công khai dùng `Objects.requireNonNull` / `IllegalArgumentException`, không dựa `assert`.
+5. **Assert vs validation** — `assert` tắt mặc định (chỉ chạy khi bật `-ea`); precondition API công khai dùng `Objects.requireNonNull` / `IllegalArgumentException`, không dựa `assert`.
 6. **Log rồi rethrow mọi tầng** — trùng log (mục 15).
 7. **Nuốt `InterruptedException`** — quên `Thread.currentThread().interrupt()`.
 8. **Chỉ test “threw something”** — `assertThrows(Exception.class, …)` yếu (mục 16).
@@ -759,15 +760,17 @@ public final class ExceptionDemo {
 
 | Exception | Ý nghĩa nhanh |
 |-----------|----------------|
-| `NullPointerException` | Dereference null — phòng thủ / `Objects.requireNonNull` |
+| `NullPointerException` | Dereference null — phòng thủ / `Objects.requireNonNull`. Từ Java 14 (JEP 358, Helpful NPE), JVM tự chỉ rõ biểu thức nào bị `null` trong message |
 | `IllegalArgumentException` | Tham số không hợp lệ |
 | `IllegalStateException` | Sai trạng thái đối tượng / vòng đời |
+| `NoSuchElementException` | Phần tử không tồn tại (`Optional.orElseThrow`, `SequencedCollection.getFirst`, `Iterator.next`, `LazyConstant.get` lỗi) |
 | `IndexOutOfBoundsException` | Chỉ số ngoài khoảng |
 | `ClassCastException` | Cast sai — ưu tiên pattern/`instanceof` |
 | `UnsupportedOperationException` | Thao tác không hỗ trợ (immutable list…) |
 | `ConcurrentModificationException` | Sửa collection khi duyệt fail-fast |
 | `IOException` / `UncheckedIOException` | I/O |
 | `InterruptedException` | Thread bị interrupt khi chờ |
+| `TimeoutException` | Hết thời gian chờ (`Future.get(timeout)`, `CompletableFuture.orTimeout`) |
 | `CompletionException` | Bọc lỗi trong `CompletableFuture` (`join`) |
 | `ExecutionException` | Bọc lỗi trong `Future.get()` / tương tự |
 | `CancellationException` | Future/stage đã bị hủy |
@@ -783,7 +786,6 @@ public final class ExceptionDemo {
 | [threading.md](threading.md) | Interrupt, virtual threads, uncaught handler |
 | [async.md](async.md) | `CompletableFuture`, structured concurrency |
 | [oop.md](oop.md) | Override `throws`, hierarchy kiểu |
-| [threading.md](threading.md) · [async.md](async.md) | Concurrency & structured concurrency |
 | [packages-modules.md](packages-modules.md) | Biên module / không leak type |
 | [main-function.md](main-function.md) | Bắt ở `main` / launcher |
 

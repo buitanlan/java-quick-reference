@@ -20,6 +20,9 @@ automatic modules, classpath vs module path, ServiceLoader, và **JEP 511** `imp
 - [7. Automatic modules & unnamed module](#7-automatic-modules--unnamed-module)
 - [8. Classpath vs Module path (Maven / Gradle)](#8-classpath-vs-module-path-maven--gradle)
 - [8.1 `--release`, preview \& Multi-Release JAR](#81---release-preview--multi-release-jar)
+- [8.2 Project Leyden — AOT Cache (JDK 24–26+)](#82-project-leyden--aot-cache-jdk-2426)
+- [8.3 ClassLoader Hierarchy \& Delegation Model](#83-classloader-hierarchy--delegation-model)
+- [8.4 Đóng gói (`jlink`, `jpackage`, Fat JAR) \& Dependency Conflicts](#84-đóng-gói-jlink-jpackage-fat-jar--dependency-conflicts)
 - [9. Ma trận lỗi JPMS thường gặp](#9-ma-trận-lỗi-jpms-thường-gặp)
 - [10. ServiceLoader / `provides` / `uses` — pitfalls](#10-serviceloader--provides--uses--pitfalls)
 - [11. Pitfalls (Bẫy)](#11-pitfalls-bẫy)
@@ -128,7 +131,7 @@ public class ModImportDemo {
 | Điểm | Chi tiết |
 |------|----------|
 | Phạm vi | Tương đương on-demand mọi package mà module **exports** (kể cả qua `requires transitive` theo quy tắc JEP) |
-| Ambiguous | Hai module export cùng simple name → lỗi biên dịch → single-type import hoặc FQCN |
+| Ambiguous | Hai module export cùng simple name (vd. `java.util.Date` từ `java.base` vs `java.sql.Date` từ `java.sql`) → lỗi biên dịch khi dùng tên đó → giải bằng single-type import hoặc FQCN |
 | `requires` | `import module` **không** thay `requires` trong `module-info` — module bạn vẫn phải đọc module đó |
 | `java.base` | Luôn available; `import module java.base;` kéo toàn bộ package exported của base vào scope tên |
 
@@ -275,7 +278,7 @@ Chiến lược migrate:
 ## 8. Classpath vs Module path (Maven / Gradle)
 
 ```text
-# Classpath (truyền thống)
+# Classpath (truyền thống — dùng `;` trên Windows, `:` trên Linux/macOS)
 java -cp "app.jar;lib/*" com.example.Main
 
 # Module path
@@ -353,6 +356,58 @@ java  --enable-preview PreviewDemo
 
 MRJAR: dùng khi lib phải chạy trên 21 **và** tận dụng 25; tăng độ phức tạp test matrix — đừng dùng cho app nội bộ một JDK.
 
+### 8.2 Project Leyden — AOT Cache (JDK 24–26+)
+
+**Project Leyden** giảm thời gian startup và warmup JIT bằng **AOT Cache** lưu class đã load/link sẵn (JEP 483, JDK 24), method profiling (JEP 515, JDK 25) và cached objects tương thích mọi GC kể cả ZGC (JEP 516, JDK 26). Từ JDK 25 ([JEP 514](https://openjdk.org/jeps/514)), tạo cache chỉ cần 1 lệnh với `-XX:AOTCacheOutput`:
+
+```text
+# Bước 1: training run (chạy workload tiêu biểu rồi thoát)
+java -XX:AOTCacheOutput=app.aot -jar app.jar
+
+# Bước 2: production run dùng cache
+java -XX:AOTCache=app.aot -jar app.jar
+```
+
+Classpath/module path và phiên bản JDK giữa lúc tạo cache và lúc chạy phải khớp; rất phù hợp đưa training step vào quy trình build Docker image cho microservice.
+
+### 8.3 ClassLoader Hierarchy & Delegation Model
+
+Danh tính một kiểu tại runtime trong JVM là cặp **`(ClassLoader, BinaryName)`** — hai class có cùng FQCN nhưng load bởi hai `ClassLoader` khác nhau là **hai kiểu khác nhau** (ép kiểu ném `ClassCastException: Foo cannot be cast to Foo`).
+
+```text
+Bootstrap ClassLoader (native / getClassLoader() == null) → java.base và core JDK modules
+ └─ Platform ClassLoader (ClassLoader.getPlatformClassLoader()) → các platform modules khác (java.sql, java.xml…)
+     └─ Application / System ClassLoader (ClassLoader.getSystemClassLoader()) → classpath / module path ứng dụng
+         └─ Custom ClassLoaders (plugin, servlet container, hot-reload)
+```
+
+- **Parent-First Delegation (mặc định):** trước khi tự load class, loader ủy quyền lên `parent` — ngăn code ứng dụng ghi đè `java.lang.String`.
+- **Thread Context ClassLoader (TCCL):** `Thread.currentThread().getContextClassLoader()` giúp SPI/framework ở tầng cha (`ServiceLoader`, JDBC, JNDI) load được class ở tầng ứng dụng/plugin.
+
+### 8.4 Đóng gói (`jlink`, `jpackage`, Fat JAR) & Dependency Conflicts
+
+- **Multi-Release JAR (`META-INF/versions/N/`):**
+
+```text
+jar --create --file lib.jar -C out-21 . --release 25 -C out-25 .
+```
+
+- **`jlink` (custom runtime image):** đóng gói ứng dụng modular + đúng các module JDK cần thiết (thay vì nhét cả JDK 300+ MB vào Docker container):
+
+```text
+jlink --module-path "$JAVA_HOME/jmods;mods" --add-modules com.example.app \
+      --strip-debug --no-man-pages --no-header-files --output runtime-image
+```
+
+- **`jpackage` (Java 16+):** tạo bộ cài native OS (`.msi`/`.exe`, `.dmg`/`.pkg`, `.deb`/`.rpm`) kèm runtime image từ `jlink`.
+- **Bẫy Fat / Uber JAR (Maven Shade / Gradle Shadow):**
+  - Ghi đè mất file `META-INF/services/*` của nhiều thư viện → phải bật `ServicesResourceTransformer` / `mergeServiceFiles()`.
+  - Tránh copy `META-INF/*.SF`, `*.DSA`, `*.RSA` từ JAR có ký số (gây `SecurityException: Invalid signature file digest`).
+  - Loại bỏ hoặc xử lý xung đột `module-info.class` khi gộp nhiều JAR vào 1 fat JAR.
+- **Giải xung đột dependency (Maven vs Gradle):**
+  - **Maven** dùng *nearest-wins* (nhánh gần root nhất trong cây phụ thuộc thắng — đôi khi kéo xuống version **cũ hơn**!). Khóa version nhất quán qua **BOM** (`<dependencyManagement>` với `<scope>import</scope>`).
+  - **Gradle** dùng *highest-wins* (chọn version mới nhất tương thích) và phân tách rõ **`api`** (lộ ra compile classpath của consumer, tương tự `requires transitive`) với **`implementation`** (đóng gói nội bộ, tăng tốc incremental build). Dùng `platform(...)` cho BOM.
+
 ---
 
 ## 9. Ma trận lỗi JPMS thường gặp
@@ -398,7 +453,7 @@ List<Greeter> all = loader.stream().map(ServiceLoader.Provider::get).toList();
 | Thiếu `uses` | Explicit named consumer gọi `ServiceLoader.load` phải khai báo `uses SPI`; thiếu có thể ném `ServiceConfigurationError`, không chỉ trả rỗng |
 | Thiếu `provides` | Provider module phải `provides … with …`; chỉ có class impl không đủ |
 | Classpath vs module | Classpath dùng `META-INF/services/<SPI>`; module path ưu tiên `module-info` — đừng giả định một bên đủ cho mọi launch mode |
-| Provider ctor | `ServiceLoader` cần public no-arg constructor (hoặc provider method / factory theo quy tắc); ctor private → fail lúc load |
+| Provider ctor | `ServiceLoader` cần public no-arg constructor, hoặc trong JPMS có thể khai báo static factory `public static <SPI> provider()` (không cần public ctor); thiếu cả hai → fail lúc load |
 | Lazy + cache | Iterator load lười; đừng giữ instance lỗi thời nếu hot-reload (hiếm); `reload()` khi cần |
 | ClassLoader sai | `ServiceLoader.load(SPI.class, cl)` — sai CL → “mất” provider trong app server / plugin |
 | SPI trong non-exported package | Interface SPI phải accessible (thường `exports` package API); impl có thể không export |
@@ -479,7 +534,6 @@ public class Fetch {
 | [keywords.md](keywords.md) | `package`, `import`, `module` |
 | [oop.md](oop.md) | Visibility, sealed API boundaries |
 | [exceptions.md](exceptions.md) | Không leak type qua biên module |
-| [main-function.md](main-function.md) | Launcher / compact main |
 | [methods.md](methods.md) | API surface của package exported |
 
 ---

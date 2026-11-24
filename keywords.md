@@ -484,7 +484,7 @@ public interface Repository<T> {
 }
 ```
 
-**Ghi chú:** Functional interface + lambda: xem file lambdas. Sealed interface: mục `sealed`. [oop.md](oop.md).
+**Ghi chú:** Functional interface + lambda: xem [lambdas-functional.md](lambdas-functional.md). Sealed interface: mục `sealed`. [oop.md](oop.md).
 
 ---
 
@@ -878,7 +878,7 @@ var stream = Files.lines(path);     // Stream<String>
 **Ghi chú:**
 
 - Ổn định **Java 10** (JEP 286). Suy luận kiểu **compile-time** — không phải dynamic typing / `Object`.
-- Được: local variable, index/`resource` trong try-with-resources, biến vòng enhanced-for / truyền thống (từ các bản hỗ trợ tương ứng).
+- Được: local variable, `resource` trong try-with-resources, biến vòng enhanced-for và basic-for (đều có từ Java 10, JEP 286).
 - **Không** dùng cho field, method return type, hay tham số method thường.
 - Lambda: tham số `var` (Java 11+, JEP 323) khi cần đồng nhất / annotation: `(var x, var y) -> …` — không trộn `var` với kiểu tường minh trong cùng danh sách.
 - Local/resource/basic-for declaration dùng `var` phải có initializer suy kiểu được; enhanced-for suy kiểu từ iterable/array, lambda parameter suy từ target type. Không `var x = null;` đơn độc. Tránh `var` khi che mất ý nghĩa kiểu.
@@ -1062,10 +1062,12 @@ void requires() { }
 
 | Token | Ngữ cảnh đặc biệt | Identifier ngoài ngữ cảnh? |
 |-------|-------------------|----------------------------|
-| `record` | Khai báo record type | Thường vẫn đặt tên biến/method `record` được (tránh) |
-| `sealed` / `permits` / `non-sealed` | Khai báo sealed hierarchy | Contextual |
-| `yield` | Giá trị nhánh switch expression | Method tên `yield` legacy vẫn gặp |
-| `when` | Guard sau pattern | Contextual |
+| `var` | Suy luận kiểu cục bộ | **Restricted identifier**: đặt tên biến/method được, **cấm** làm tên type (`class var {}` lỗi) |
+| `record` | Khai báo record type | **Restricted identifier**: đặt tên biến/method được (tránh), **cấm** làm tên type |
+| `sealed` / `permits` | Khai báo sealed hierarchy | **Restricted identifier**: cấm làm tên type |
+| `non-sealed` | Mở rộng subtype của sealed | Chứa dấu `-` nên vốn không bao giờ là identifier hợp lệ |
+| `yield` | Giá trị nhánh switch expression | **Restricted identifier**: cấm làm tên type; method tên `yield` legacy vẫn gặp |
+| `when` | Guard sau pattern | Contextual; dùng được làm identifier ở ngoài pattern (tránh) |
 | `_` | **Reserved keyword** từ 9; unnamed từ 22 | Không dùng làm identifier thường |
 
 ### 6.4 Literal vs keyword
@@ -1090,7 +1092,7 @@ Danh sách reserved keywords cốt lõi ổn định từ lâu; **tính năng m�
 | 1.4 | `assert` | Bật bằng `-ea` |
 | 5 | `enum` | Type-safe enums |
 | 8 | (interface) `default` / `static` methods | Không thêm reserved mới |
-| 9 | Module contextual: `module` `requires` `exports` … | Chỉ `module-info.java` |
+| 9 | Module contextual: `module` `requires` `exports` …; `_` thành reserved keyword | Module words trong `module-info.java`; cấm đặt tên biến `_` |
 | **10** | `var` | Local-variable type inference (JEP 286) |
 | 11 | `var` trên lambda parameters | JEP 323 |
 | 12–13 | switch expressions | **Preview**; `yield` từ 13 |

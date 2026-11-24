@@ -3,7 +3,7 @@
 Tài liệu tham khảo **lambda**, **functional interfaces**, **method references**, capture / effectively final,
 checked exceptions trong lambda, và mối liên hệ với `Comparator` / `Optional` trên **Java 27**.
 
-> Cross-link: [methods.md](methods.md) · [statements.md](statements.md) (effectively final) · [streams.md](streams.md) ·
+> Cross-link: [functional.md](functional.md) (DOP, ADT, `Result<T, E>`) · [methods.md](methods.md) · [statements.md](statements.md) (effectively final) · [streams.md](streams.md) ·
 > [collections-generics.md](collections-generics.md) · [exceptions.md](exceptions.md) · [keywords.md](keywords.md)
 
 ---
@@ -13,12 +13,15 @@ checked exceptions trong lambda, và mối liên hệ với `Comparator` / `Opti
 1. [Lambda là gì?](#1-lambda-là-gì)
 2. [Cú pháp lambda](#2-cú-pháp-lambda)
 3. [Target typing](#3-target-typing)
+   - [3.1 Void-Compatibility Rule (JLS §15.27.2)](#31-void-compatibility-rule-jls-15272)
 4. [Effectively final & capture](#4-effectively-final--capture)
+   - [4.3 Cơ chế nội bộ (`invokedynamic` / `LambdaMetafactory`) & Intersection Casts](#43-cơ-chế-nội-bộ-invokedynamic--lambdametafactory--intersection-casts)
 5. [Functional interfaces dựng sẵn](#5-functional-interfaces-dựng-sẵn)
 6. [Tự viết `@FunctionalInterface`](#6-tự-viết-functionalinterface)
 7. [Method references `::`](#7-method-references-)
 8. [Checked exceptions trong lambda](#8-checked-exceptions-trong-lambda)
 9. [`Comparator` & sắp xếp](#9-comparator--sắp-xếp)
+   - [9.1 Bẫy suy kiểu với `Comparator.reversed()`](#91-bẫy-suy-kiểu-với-comparatorreversed)
 10. [Liên hệ với `Optional`](#10-liên-hệ-với-optional)
 11. [Khác biệt ngắn với C# delegates](#11-khác-biệt-ngắn-với-c-delegates)
 12. [Pitfalls (Bẫy)](#12-pitfalls-bẫy)
@@ -98,6 +101,18 @@ method((Function<String, String>) s -> s.trim());
 Function<String, Integer> x = s -> s.length();
 ```
 
+### 3.1 Void-Compatibility Rule (JLS §15.27.2)
+
+Một lambda thân đơn là **statement expression** (gọi method, `++`, gán, `new`) hoặc method reference có kiểu trả về khác `void` vẫn tương thích với functional interface trả về `void` — giá trị trả về được bỏ qua tự động:
+
+```java
+List<String> log = new ArrayList<>();
+Consumer<String> append = log::add;          // List.add trả boolean → vẫn khớp Consumer (void)!
+Runnable addOne = () -> log.add("event");    // hợp lệ với Runnable (void)
+```
+
+*(Cẩn thận khi overload cùng nhận cả `Consumer` lẫn `Function` hoặc `Runnable` lẫn `Callable` — quy tắc này có thể làm compiler chọn bất ngờ hoặc báo ambiguous.)*
+
 ---
 
 ## 4. Effectively final & capture
@@ -121,7 +136,7 @@ Function<Integer, Integer> mul = n -> n * factor; // OK
 | `this` / `Outer.this` | Có | Anonymous/lambda trong instance method |
 | Static field | Có | Qua tên class / implicit |
 
-Lambda dùng `this` của enclosing scope, anonymous class có `this` riêng. Không dựa vào identity của lambda (JVM có thể tái dùng instance), không dùng nó làm monitor hay so bằng `==` để suy ra cùng hành vi.
+Lambda dùng `this` của enclosing scope và **không được shadow biến local** trùng tên từ scope bao ngoài (cùng lexical scope), trong khi anonymous class có `this` riêng và được shadow biến local. Không dựa vào identity của lambda (JVM có thể tái dùng instance), không dùng nó làm monitor hay so bằng `==` để suy ra cùng hành vi.
 
 ### 4.2 Pitfalls capture
 
@@ -142,6 +157,20 @@ for (int i = 0; i < n; i++) {
 var sum = new AtomicInteger();
 list.forEach(n -> sum.addAndGet(n));
 ```
+
+### 4.3 Cơ chế nội bộ (`invokedynamic` / `LambdaMetafactory`) & Intersection Casts
+
+- **Không sinh file `.class` riêng cho mỗi lambda:** khác anonymous class (`Outer$1.class`), `javac` biên dịch thân lambda thành một phương thức `private static` (hoặc `private` instance nếu capture `this`) tên `lambda$...`, và phát lệnh **`invokedynamic`** gọi `LambdaMetafactory.metafactory(...)` tại lần chạy đầu tiên để tạo hidden class tối ưu.
+- **Chi phí cấp phát (Allocation):**
+  - **Non-capturing lambda** (không bắt biến ngoài hay `this`): JVM thường tạo **1 singleton dùng lại mãi** → zero allocation trên hot path.
+  - **Capturing lambda** (bắt local hoặc `this`): cấp phát object mới mỗi lần tạo (trừ khi JIT loại bỏ bằng Escape Analysis — [memory-ffm.md](memory-ffm.md#3-escape-analysis--scalar-replacement)).
+- **Intersection Type Casts:** có thể ép lambda implement thêm marker interface (như `Serializable`) tại vị trí cast:
+
+```java
+Comparator<String> cmp = (Comparator<String> & Serializable) (a, b) -> a.compareTo(b);
+```
+
+*(Cảnh báo: serialize lambda rất giòn — đổi thứ tự khai báo hoặc tái biên dịch lớp chứa sẽ đổi tên synthetic method `lambda$...` và làm vỡ deserialization; ưu tiên class/enum tường minh nếu cần serialize.)*
 
 ---
 
@@ -172,7 +201,8 @@ Consumer<String> log = System.out::println;
 BinaryOperator<Integer> max = Integer::max;
 
 Predicate<String> p = nonEmpty.and(s -> s.length() > 3).negate();
-Function<String, String> pipe = trim.andThen(String::toUpperCase);
+Function<String, String> pipe = trim.andThen(String::toUpperCase);       // toUpperCase(trim(s))
+Function<String, String> composed = trim.compose(String::toUpperCase);   // trim(toUpperCase(s)) — ngược thứ tự andThen
 ```
 
 `Runnable` / `Callable<V>` cũng là functional interfaces (`Callable` khai báo `throws Exception` — hữu ích với checked).
@@ -233,7 +263,7 @@ list.stream().map(s -> s == null ? "" : s.trim());
 | Bẫy | Chi tiết |
 |-----|----------|
 | Ambiguous overload | `Type::method` khớp nhiều overload → lỗi; cast target hoặc lambda tường minh |
-| Bound vs unbound | `str::equals` vs `String::equals` — arity / receiver khác |
+| Bound vs unbound | `str::equals` vs `String::equals` — arity / receiver khác. **Bẫy eager evaluation:** bound method ref `obj::method` đánh giá `obj` **ngay lúc tạo reference** (nếu `obj == null` → NPE ngay lập tức), khác `() -> obj.method()` chỉ đánh giá khi gọi |
 | Generic ctor / diamond | Generic constructor có dạng `Type::<T>new`; generic class cần target type rõ hoặc `Box<String>::new` |
 | `this::method` / `super::method` | Giữ `this`; `super::` gọi phiên bản superclass |
 | Checked exception | Method ref tới method `throws` checked **không** khớp SAM không khai báo checked (giống lambda) |
@@ -317,6 +347,20 @@ Comparator<String> nullsLast = Comparator.nullsLast(String::compareToIgnoreCase)
 `Comparable` = thứ tự tự nhiên; `Comparator` = chiến lược ngoài — hay kết hợp method reference.
 Tránh `(a,b) -> a.size() - b.size()` (overflow) — dùng `Integer.compare` / `comparingInt`.
 
+### 9.1 Bẫy suy kiểu với `Comparator.reversed()`
+
+```java
+// Method reference thường suy tốt:
+users.sort(Comparator.comparingInt(User::age).reversed());
+
+// Lambda chưa khai kiểu + chain .reversed() có thể làm mất target type → lỗi compile:
+// users.sort(Comparator.comparing(u -> u.age()).reversed()); // u bị suy thành Object!
+
+// Khắc phục: ghi kiểu tham số lambda, hoặc dùng Comparator.reverseOrder() làm comparator thứ hai:
+users.sort(Comparator.comparing((User u) -> u.age()).reversed());
+users.sort(Comparator.comparing(User::age, Comparator.reverseOrder()));
+```
+
 ---
 
 ## 10. Liên hệ với `Optional`
@@ -327,7 +371,7 @@ Optional<User> user = find(id);
 user.ifPresent(u -> System.out.println(u.name()));
 String label = user.map(User::name).orElse("unknown");
 User u = user.filter(User::active).orElseThrow();
-optional.or(() -> Optional.of(defaultUser()));
+Optional<User> alt = user.or(() -> Optional.of(defaultUser()));
 ```
 
 - Prefer `map` / `flatMap` / `filter` / `orElse` / `orElseGet` / `orElseThrow`.

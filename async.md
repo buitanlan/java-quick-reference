@@ -17,10 +17,14 @@ Xem thêm: [threading.md](threading.md) (VT, pinning, Scoped Values, JMM, `Struc
   - [3.2 Pipeline: `thenApply` / `thenCompose` / `thenCombine`](#32-pipeline-thenapply--thencompose--thencombine)
   - [3.3 Tất cả / bất kỳ](#33-tất-cả--bất-kỳ)
   - [3.4 Exception handling](#34-exception-handling)
-  - [3.5 Pitfalls `CompletableFuture`](#35-pitfalls-completablefuture)
+  - [3.5 Cơ chế thực thi nội bộ & Isolation (`minimalCompletionStage` / `copy`)](#35-cơ-chế-thực-thi-nội-bộ--isolation-minimalcompletionstage--copy)
+  - [3.6 Pitfalls `CompletableFuture`](#36-pitfalls-completablefuture)
 - [4. Cancellation \& timeout](#4-cancellation--timeout)
 - [5. Virtual threads: “blocking async” thực dụng](#5-virtual-threads-blocking-async-thực-dụng)
+  - [5.1 `HttpClient` \& HTTP/3 (JEP 517, JDK 26+)](#51-httpclient--http3-jep-517-jdk-26)
+  - [5.2 Production Patterns: Bulkhead, Retry/Backoff, Hedged Requests \& Deadline](#52-production-patterns-bulkhead-retrybackoff-hedged-requests--deadline)
 - [6. JEP 533 — Structured Concurrency (Seventh Preview trong 27)](#6-jep-533--structured-concurrency-seventh-preview-trong-27)
+  - [6.1 Tự viết `Joiner` tùy biến (JEP 533)](#61-tự-viết-joiner-tùy-biến-jep-533)
 - [7. Reactive / `Flow` — overview thực dụng](#7-reactive--flow--overview-thực-dụng)
 - [8. So sánh lựa chọn](#8-so-sánh-lựa-chọn)
 - [9. Pitfalls](#9-pitfalls)
@@ -99,6 +103,10 @@ CompletableFuture<String> manual = new CompletableFuture<>();
 manual.complete("ok");
 manual.completeExceptionally(new IOException("boom"));
 
+CompletableFuture<String> done = CompletableFuture.completedFuture("cached");
+CompletableFuture<String> failed = CompletableFuture.failedFuture(new IOException("bad")); // Java 9+
+Executor delayed = CompletableFuture.delayedExecutor(500, TimeUnit.MILLISECONDS, exec);    // Java 9+
+
 String v = cf.join();   // unchecked CompletionException
 String v2 = cf.get();   // checked ExecutionException / InterruptedException
 ```
@@ -143,7 +151,7 @@ List<String> values = List.of(f1, f2, f3).stream()
 CompletableFuture<Object> first = CompletableFuture.anyOf(f1, f2);
 ```
 
-- `allOf` hoàn thành khi **mọi** stage xong (kể cả exceptionally) — kiểm tra từng CF hoặc `join` từng cái để lấy lỗi/giá trị.
+- `allOf` hoàn thành khi **mọi** stage xong (kể cả exceptionally) — **không fail-fast** (một CF lỗi sớm vẫn đợi các CF khác xong); kiểm tra từng CF hoặc `join` từng cái để lấy lỗi/giá trị.
 - `anyOf` hoàn thành khi **một** xong; các CF còn lại **không** tự cancel — tự hủy nếu cần (mục 4).
 
 ### 3.4 Exception handling
@@ -151,6 +159,7 @@ CompletableFuture<Object> first = CompletableFuture.anyOf(f1, f2);
 ```java
 cf.exceptionally(ex -> "fallback");
 cf.exceptionallyAsync(ex -> recover(ex), exec);
+cf.exceptionallyCompose(ex -> fetchFallbackAsync(ex)); // Java 12+ — fallback trả CompletableFuture (flatMap lỗi)
 
 cf.handle((val, ex) -> ex == null ? val : recover(ex));
 cf.whenComplete((val, ex) -> log(val, ex)); // quan sát; callback ném lỗi có thể làm stage trả về thất bại
@@ -177,7 +186,23 @@ Throwable unwrap(Throwable ex) {
 }
 ```
 
-### 3.5 Pitfalls `CompletableFuture`
+### 3.5 Cơ chế thực thi nội bộ & Isolation (`minimalCompletionStage` / `copy`)
+
+Hiểu rõ **thread nào chạy callback** giúp tránh deadlock và nghẽn pool:
+
+| Dạng phương thức | Khi stage trước **đã xong** | Khi stage trước **chưa xong** |
+|---|---|---|
+| `thenApply(fn)` (non-async) | Chạy ngay trên **caller thread** (người gọi `thenApply`) | Chạy trên **thread hoàn thành stage trước** |
+| `thenApplyAsync(fn)` | Đẩy lên `ForkJoinPool.commonPool()` | Đẩy lên `ForkJoinPool.commonPool()` |
+| `thenApplyAsync(fn, exec)` | Đẩy lên `exec` | Đẩy lên `exec` |
+
+- **Defensive isolation khi trả `CompletableFuture` ra API public:** trả trực tiếp `CF` nội bộ cho phép caller gọi `cf.complete(...)` hoặc `cf.cancel(...)` làm hỏng các subscriber khác (hoặc `cf.orTimeout(...)` làm timeout ảnh hưởng chung). Giải pháp chuẩn từ Java 9+:
+  - `cf.minimalCompletionStage()` → trả về `CompletionStage<T>` chỉ cho phép gắn tiếp callback (không gọi được `complete`/`obtrudeValue`/`join`).
+  - `cf.copy()` → tạo bản sao phụ thuộc mới; caller gọi `cancel`/`orTimeout` trên bản sao không làm ảnh hưởng `cf` gốc.
+- **Tránh `obtrudeValue` / `obtrudeException`:** ghi đè kết quả đã hoàn thành — chỉ dành cho recovery cực đặc thù; phá vỡ giả định bất biến của stage.
+- **`orTimeout` nội bộ:** sử dụng 1 daemon scheduler chung (`CompletableFuture.Delayer`), nhẹ hơn tự tạo `ScheduledExecutorService` riêng, nhưng **không tự hủy (interrupt)** tác vụ gốc.
+
+### 3.6 Pitfalls `CompletableFuture`
 
 | Pitfall | Chi tiết |
 |---------|----------|
@@ -188,16 +213,16 @@ Throwable unwrap(Throwable ex) {
 | Quên executor trên `*Async` | `thenApplyAsync(fn)` không exec → lại commonPool |
 | `allOf` + `join` một lần | Không lấy được từng kết quả; vẫn cần `f1.join()`… hoặc `handle` |
 | `anyOf` orphan | Winner xong, loser vẫn chạy — tốn resource / side effect |
-| `complete` hai lần | Lần sau bỏ qua (trả `false`) — race publisher cần `completeOnTimeout` / chỉ một writer |
+| `complete` hai lần | Lần sau bỏ qua (trả `false`) — chỉ một writer thắng; cần phối hợp nếu nhiều producer cùng hoàn thành |
 | Nuốt lỗi trong `exceptionally` | Fallback im lặng → mất tín hiệu ops |
 
 ```java
 // BAD — blocking I/O trên commonPool
 CompletableFuture.supplyAsync(() -> httpBlocking());
 
-// GOOD — VT executor hoặc pool I/O riêng
+// GOOD — VT executor hoặc pool I/O riêng (nếu return CF ra ngoài, quản lý vòng đời exec ngoài try vì close() sẽ chờ task xong)
 try (var exec = Executors.newVirtualThreadPerTaskExecutor()) {
-    CompletableFuture.supplyAsync(() -> httpBlocking(), exec);
+    String res = CompletableFuture.supplyAsync(() -> httpBlocking(), exec).join();
 }
 ```
 
@@ -299,6 +324,97 @@ Khi nào vẫn cần `CompletableFuture`?
 - Cần timeout/composition trên thread hiện có mà không muốn block caller (vd. servlet cũ — ngày càng ít).
 - Fan-in phức tạp trước khi Structured Concurrency ổn định / không bật preview.
 
+### 5.1 `HttpClient` & HTTP/3 (JEP 517, JDK 26+)
+
+`java.net.http.HttpClient` (chuẩn từ Java 11, implement **`AutoCloseable` từ Java 21**) hỗ trợ HTTP/1.1, HTTP/2, WebSocket, và từ **JDK 26 ([JEP 517](https://openjdk.org/jeps/517))** hỗ trợ **HTTP/3 qua QUIC (UDP + TLS 1.3)** theo cơ chế **opt-in** (tự fallback về HTTP/2 hoặc HTTP/1.1 nếu server không hỗ trợ hoặc firewall chặn UDP):
+
+```java
+try (HttpClient client = HttpClient.newBuilder()
+        .version(HttpClient.Version.HTTP_3)          // opt-in JDK 26+; mặc định vẫn là HTTP_2
+        .connectTimeout(Duration.ofSeconds(5))
+        .build()) {
+
+    HttpRequest req = HttpRequest.newBuilder(URI.create("https://api.example.com/data"))
+            .timeout(Duration.ofSeconds(10))         // luôn đặt cả connectTimeout lẫn request timeout
+            .GET()
+            .build();
+
+    // Trên Virtual Thread: send() đồng bộ gọn hơn sendAsync() và vẫn scale tốt
+    HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+}
+```
+
+- **Tái sử dụng 1 `HttpClient` chia sẻ** thay vì tạo mới mỗi request (mỗi client giữ connection pool + selector thread).
+- Nếu dùng `BodyHandlers.ofInputStream()`, bắt buộc đóng `InputStream` để trả connection về pool; không cần body thì dùng `BodyHandlers.discarding()`. `send()` không ném lỗi khi HTTP 4xx/5xx — phải tự kiểm `res.statusCode()`.
+- Với response rất lớn (NDJSON/CSV streaming), dùng `BodyHandlers.ofLines()` (đóng `Stream<String>` bằng try-with-resources) hoặc `BodySubscribers.fromLineSubscriber(...)` khi cần backpressure reactive.
+
+### 5.2 Production Patterns: Bulkhead, Retry/Backoff, Hedged Requests & Deadline
+
+#### Bulkhead (Giới hạn đồng thời bằng `Semaphore` trên Virtual Threads)
+
+Không pool virtual threads thành fixed pool nhỏ; thay vào đó giới hạn **tài nguyên downstream** bằng `Semaphore`:
+
+```java
+private final Semaphore downstreamLimit = new Semaphore(32);
+
+String callPartner(Request req) throws InterruptedException {
+    if (!downstreamLimit.tryAcquire(2, TimeUnit.SECONDS)) {
+        throw new RejectedExecutionException("downstream bulkhead full");
+    }
+    try {
+        return partnerClient.fetch(req);
+    } finally {
+        downstreamLimit.release();
+    }
+}
+```
+
+#### Retry với Exponential Backoff + Full Jitter
+
+```java
+static <T> T retryWithJitter(int maxAttempts, Duration baseDelay, Callable<T> action) throws Exception {
+    Exception last = null;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return action.call();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
+        } catch (Exception e) {
+            last = e;
+            if (attempt == maxAttempts) break;
+            long maxWaitMs = baseDelay.toMillis() * (1L << (attempt - 1));
+            long sleepMs = ThreadLocalRandom.current().nextLong(maxWaitMs + 1); // full jitter tránh thundering herd
+            Thread.sleep(Duration.ofMillis(sleepMs));
+        }
+    }
+    throw last;
+}
+```
+
+*(Nếu dùng non-blocking `CompletableFuture`, lên lịch retry bằng `CompletableFuture.delayedExecutor(sleepMs, MILLISECONDS, exec)` thay vì `Thread.sleep`.)*
+
+#### Deadline Propagation qua `ScopedValue`
+
+Thay vì truyền tham số `Duration timeout` qua 6 tầng method, gắn `Instant deadline` tại biên request bằng `ScopedValue` (Java 25+, [threading.md](threading.md#6-jep-506--scoped-values-final-java-25)) và tính thời gian còn lại trước mỗi I/O call:
+
+```java
+static final ScopedValue<Instant> DEADLINE = ScopedValue.newInstance();
+
+Duration remainingBudget() {
+    if (!DEADLINE.isBound()) return Duration.ofSeconds(10);
+    Duration rem = Duration.between(Instant.now(), DEADLINE.get());
+    if (rem.isNegative() || rem.isZero()) {
+        throw new IllegalStateException("request deadline exceeded");
+    }
+    return rem;
+}
+```
+
+#### Hedged Requests (Gửi dự phòng khi tail-latency cao)
+
+Khi p99 của backend cao hơn nhiều so với p50, gửi bản sao request idempotent thứ hai sau một ngưỡng ngắn rồi lấy kết quả đầu tiên và hủy nhánh còn lại (gọn nhất với `StructuredTaskScope` `Joiner.anySuccessfulOrThrow()`, hoặc `CompletableFuture` kết hợp `Future.cancel(true)` cho các tác vụ đọc idempotent).
+
 ---
 
 ## 6. JEP 533 — Structured Concurrency (Seventh Preview trong 27)
@@ -338,6 +454,14 @@ Response handle() throws InterruptedException, ExecutionException {
 // Joiner: import java.util.concurrent.StructuredTaskScope.Joiner;
 // open() dùng Joiner.awaitAllSuccessfulOrThrow(); join() trả Void.
 // Với các task cùng kiểu T: Joiner.<T>allSuccessfulOrThrow() cho join() trả List<T>.
+// Quá hạn timeout → hủy scope, join() ném ExecutionException (cause: CancelledByTimeoutException):
+try (var scope = StructuredTaskScope.open(
+        Joiner.<String>allSuccessfulOrThrow(),
+        cf -> cf.withTimeout(Duration.ofSeconds(2)))) {
+    scope.fork(() -> fetchA());
+    scope.fork(() -> fetchB());
+    List<String> results = scope.join();
+}
 ```
 
 So với `CompletableFuture.allOf`:
@@ -353,6 +477,34 @@ So với `CompletableFuture.allOf`:
 javac --enable-preview --release 27 Main.java
 java  --enable-preview Main
 ```
+
+### 6.1 Tự viết `Joiner` tùy biến (JEP 533)
+
+Khi các policy dựng sẵn chưa đủ (ví dụ: thu thập **tất cả kết quả thành công** và bỏ qua lỗi cục bộ — *best-effort fan-out* — mà không hủy sibling):
+
+```java
+// PREVIEW — JEP 533 (JDK 27)
+final class CollectSuccesses<T> implements StructuredTaskScope.Joiner<T, List<T>, RuntimeException> {
+    private final Queue<T> results = new ConcurrentLinkedQueue<>();
+
+    @Override
+    public boolean onComplete(StructuredTaskScope.Subtask<? extends T> subtask) {
+        if (subtask.state() == StructuredTaskScope.Subtask.State.SUCCESS) {
+            results.add(subtask.get());
+        }
+        return false; // false = không hủy scope khi một subtask lỗi
+    }
+
+    @Override
+    public List<T> result() {
+        return List.copyOf(results);
+    }
+}
+```
+
+- `onComplete(...)` trả về `true` nếu muốn **hủy ngay toàn bộ scope** (fail-fast hoặc đã đủ số kết quả cần thiết); trả `false` để tiếp tục chờ các subtask khác.
+- `onComplete` có thể được gọi đồng thời từ nhiều subtask → trạng thái nội bộ trong `Joiner` phải **thread-safe** (ví dụ `ConcurrentLinkedQueue`, `AtomicInteger`).
+- Có thể override `timeout()` (mới ở JEP 533, thay `onTimeout()`) để quyết định trả kết quả một phần khi hết hạn thay vì ném `CancelledByTimeoutException`.
 
 ---
 

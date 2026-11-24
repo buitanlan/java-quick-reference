@@ -6,7 +6,7 @@ LTS gần nhất vẫn là **JDK 25**; 27 là feature release. `--release` chọ
 
 **Quy ước ví dụ:** các đoạn ngắn minh họa độc lập, có thể lược bỏ imports, lớp bao hoặc kiểu nghiệp vụ (`User`, `Response`, …). Đoạn giả mã/cố ý sai được ghi chú riêng; không ghép mọi code block thành một chương trình. Lệnh biên dịch/chạy trong tài liệu chỉ là hướng dẫn sử dụng.
 
-**Rà soát nội dung:** 11/10/2026; đối chiếu JLS và API JDK 27, kiểm tra tĩnh Markdown và ví dụ, không compile/build hay chạy ví dụ Java.
+**Rà soát nội dung:** 24/11/2026; đối chiếu JLS và API JDK 27. Chạy `node scripts/check-docs.mjs` từ thư mục gốc để kiểm tra file/anchor nội bộ, code fence và lỗi encoding UTF-8 (script không biên dịch snippet hay kiểm tra URL ngoài).
 
 ---
 
@@ -19,19 +19,21 @@ Tham khảo chính thức: [Dev.java Learn](https://dev.java/learn/) · [The Jav
 ### Ngôn ngữ cốt lõi
 
 - [Hàm main](main-function.md)
-- [Package & Module](packages-modules.md)
+- [Package, Module & AOT](packages-modules.md)
 - [Hệ thống kiểu dữ liệu](typesystem.md)
+- [Annotation & Reflection](annotations.md)
+- [Memory, GC, FFM & Diagnostics](memory-ffm.md)
 - [Literal](literals.md)
 - [Toán tử](operators.md)
 - [Từ khóa](keywords.md)
 - [Phát biểu](statements.md)
 - [Phương thức](methods.md)
-- [Annotation](annotations.md)
 
 ### OOP & Functional
 
 - [Lập trình hướng đối tượng](oop.md)
 - [Lambda & Functional interface](lambdas-functional.md)
+- [Lập trình hàm & Data-Oriented Programming](functional.md)
 - [Exception](exceptions.md)
 - [Tập hợp & Generics](collections-generics.md)
 - [Stream API](streams.md)

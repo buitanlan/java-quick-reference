@@ -12,15 +12,19 @@ Không có con trỏ / `*` `&` kiểu C.
 ## Mục lục
 
 - [1. Tổng quan & nguyên tắc](#1-tổng-quan--nguyên-tắc)
+  - [1.1 Thứ tự đánh giá biểu thức (JLS §15.7)](#11-thứ-tự-đánh-giá-biểu-thức-jls-157)
 - [2. Bảng ưu tiên (precedence)](#2-bảng-ưu-tiên-precedence)
 - [3. Số học & `%` & overflow](#3-số-học----overflow)
+  - [3.1 Numeric Promotion (JLS §5.6) & IEEE 754 / `BigDecimal`](#31-numeric-promotion-jls-56--ieee-754--bigdecimal)
 - [4. `++` / `--`](#4-----)
 - [5. Quan hệ & bằng (`==` vs `equals`)](#5-quan-hệ--bằng--vs-equals)
 - [6. Logic & short-circuit](#6-logic--short-circuit)
 - [7. Bitwise & dịch bit](#7-bitwise--dịch-bit)
+  - [7.1 Bitwise Idioms & Unsigned APIs (Java 8+)](#71-bitwise-idioms--unsigned-apis-java-8)
 - [8. Gán & compound assignment](#8-gán--compound-assignment)
 - [9. `instanceof`, pattern & cast](#9-instanceof-pattern--cast)
 - [10. Điều kiện `?:`](#10-điều-kiện-)
+  - [10.1 Bẫy suy kiểu & Unboxing ẩn của `?:` (JLS §15.25)](#101-bẫy-suy-kiểu--unboxing-ẩn-của--jls-1525)
 - [11. `->` (lambda) & `::` (method reference)](#11---lambda---method-reference)
 - [12. `new`, `.`, `[]`](#12-new--)
 - [13. Switch expression (arrow) — pointer](#13-switch-expression-arrow--pointer)
@@ -39,6 +43,21 @@ Không có con trỏ / `*` `&` kiểu C.
 - Số nguyên: tràn **two’s complement** im lặng (không checked mặc định) — dùng `Math.*Exact` khi cần bắt tràn.
 - So sánh object: `==` so reference (hoặc primitive value); nội dung → `equals` — chi tiết [typesystem.md §10](typesystem.md#10-identity--vs-equals-vs-compareto).
 - Pattern matching `instanceof` / `switch` là thực hành hiện đại thay cast thủ công.
+
+### 1.1 Thứ tự đánh giá biểu thức (JLS §15.7)
+
+Khác C/C++ (nhiều chỗ là *unspecified/undefined behavior*), Java quy định **đánh giá chặt từ trái sang phải** cho mọi toán hạng và đối số phương thức:
+
+```java
+int x = 1;
+int r = x + (++x) + (x++); // trái → phải: 1 + 2 + 2 = 5, cuối cùng x = 3 (hợp lệ theo JLS, nhưng CẤM viết thế trong production!)
+
+int[] a = {10, 20};
+int i = 0;
+a[i] = i++; // LHS (a[0]) được xác định trước khi đánh giá RHS (trả 0, i thành 1) → a[0] = 0
+```
+
+- Với toán tử gán, tham chiếu mảng/biến bên trái được xác định trước khi tính vế phải; nếu đánh giá vế trái ném ngoại lệ thì vế phải không chạy.
 
 ---
 
@@ -85,7 +104,7 @@ int n = -7 % 2;       // -1 — dấu theo dividend (khác một số ngôn ng�
 ```
 
 - `+` với `String`: nếu một toán hạng là `String` → nối chuỗi (`String.valueOf` toán hạng kia).
-- `/` nguyên chia 0 → `ArithmeticException`; `double` → `Infinity` / `NaN`.
+- `/` và `%` nguyên chia 0 → `ArithmeticException`; `double` → `Infinity` / `NaN`.
 - **Overflow im lặng:**
 
 ```java
@@ -98,12 +117,26 @@ long p = Math.multiplyExact(1_000_000L, 1_000_000L); // 10^12, chọn overload l
 | API | Khi nào |
 |-----|---------|
 | `Math.addExact` / `subtractExact` / `multiplyExact` | Cần fail-fast khi tràn |
+| `Math.absExact` (15+) / `Math.divideExact` (18+) | Bắt tràn biên `MIN_VALUE` (vd. `abs(MIN_VALUE)`, `MIN_VALUE / -1`) |
 | `Math.toIntExact(long)` | Thu hẹp `long` → `int` an toàn |
 | `Math.floorDiv` / `floorMod` | Chia/modulo hướng sàn (khác `/` `%` với số âm) |
 
 ```java
 Math.floorDiv(-7, 2); // -4
 Math.floorMod(-7, 2); // 1   — khác (-7 % 2 == -1)
+```
+
+### 3.1 Numeric Promotion (JLS §5.6) & IEEE 754 / `BigDecimal`
+
+- **Unary numeric promotion:** `byte`, `short`, `char` tự nâng lên **`int`** khi đứng với `+x`, `-x`, `~x`, chỉ số mảng `a[idx]`, hoặc khoảng dịch bit.
+- **Binary numeric promotion:** trên hai toán hạng số, nếu có `double` → cả hai thành `double`; else nếu có `float` → `float`; else nếu có `long` → `long`; **ngược lại cả hai đều nâng lên `int`**. Hệ quả: `byte a = 1, b = 2; byte c = a + b;` **lỗi biên dịch** (kết quả là `int`, cần cast `(byte)(a + b)`).
+- **IEEE 754 & `Math.fma`:**
+  - `NaN` lan truyền qua mọi phép toán (`NaN + 1` → `NaN`); `0.0 / 0.0` → `NaN`; `1.0 / 0.0` → `Infinity`.
+  - `Math.fma(a, b, c)` (Java 9+): tính `a * b + c` với **chỉ 1 lần làm tròn** (fused multiply-add, chính xác và nhanh hơn khi CPU có lệnh FMA).
+- **`BigDecimal` chia không hết:** `BigDecimal.ONE.divide(BigDecimal.valueOf(3))` ném **`ArithmeticException: Non-terminating decimal expansion`**! Luôn truyền `scale` + `RoundingMode` (hoặc `MathContext`):
+
+```java
+BigDecimal third = BigDecimal.ONE.divide(BigDecimal.valueOf(3), 4, RoundingMode.HALF_UP); // 0.3333
 ```
 
 ---
@@ -146,7 +179,7 @@ Objects.equals(null, null); // true
 | Reference | **Identity** (cùng object) | `equals` |
 | Wrapper (`Integer`…) | Identity — **bẫy cache** −128..127 | `equals` / unbox |
 | `enum` | Identity OK (singleton) | `equals` cũng đúng |
-| `float`/`double` | `NaN == NaN` → **false** | `Float.compare` / `Double.isNaN` |
+| `float`/`double` | `NaN == NaN` → **false**; `-0.0 == +0.0` → **true** | `Double.compare` / `Double.isNaN`; lưu ý `Double.valueOf(-0.0).equals(+0.0)` là `false`, còn `Double.valueOf(NaN).equals(NaN)` là `true` |
 
 ```java
 Integer a = 128;
@@ -210,8 +243,33 @@ int logical = x >>> 2; // dịch phải logic (lấp 0)
 ```
 
 - Shift mask: khoảng dịch lấy modulo bề rộng (`int` 5 bit thấp, `long` 6 bit) — `1 << 32` ≡ `1 << 0` với `int`.
+- `byte` / `short` được **promote lên `int`** trước khi dịch: `(byte) 0xFF >>> 1` trở thành `0xFFFF_FFFF >>> 1` (`0x7FFF_FFFF`), không phải `0x7F`; cần mask `b & 0xFF` trước khi dịch phải logic.
 - Prefer `EnumSet` / enum flags hơn int mask thủ công khi domain rõ.
 - Không có `<<<`.
+
+### 7.1 Bitwise Idioms & Unsigned APIs (Java 8+)
+
+```java
+// Kiểm tra lũy thừa của 2 (n > 0)
+boolean isPow2 = n > 0 && (n & (n - 1)) == 0;
+
+// Bật / tắt / đảo / kiểm tra bit thứ k
+int setBit   = flags | (1 << k);
+int clearBit = flags & ~(1 << k);
+int toggle   = flags ^ (1 << k);
+boolean has  = (flags & (1 << k)) != 0; // LUÔN so `!= 0`, đừng so `== 1` (trừ bit 0)!
+
+// JDK bit intrinsics (map thẳng xuống lệnh CPU POPCNT / LZCNT / TZCNT)
+int ones = Integer.bitCount(mask);
+int lz   = Integer.numberOfLeadingZeros(mask);
+int hi   = Integer.highestOneBit(mask);
+
+// Số học không dấu (unsigned) trên int / long (Java 8+)
+int cmp      = Integer.compareUnsigned(-1, 1); // > 0 vì -1 là 0xFFFF_FFFF = 4_294_967_295
+long uVal    = Integer.toUnsignedLong(-1);     // 4_294_967_295L
+int uDiv     = Integer.divideUnsigned(-2, 2);  // 2_147_483_647
+String uStr  = Integer.toUnsignedString(-1);   // "4294967295"
+```
 
 ---
 
@@ -276,8 +334,23 @@ String label = user != null ? user.name() : "anonymous";
 
 - Associativity phải → trái: `a ? b : c ? d : e` ≡ `a ? b : (c ? d : e)`.
 - Hai nhánh phải compatible (numeric promotion / reference lub).
-- Numeric conditional có thể unbox dù nhánh được chọn là wrapper: `Integer n = null; int x = ok ? n : 0;` ném NPE nếu chọn `n`. `-Integer.MIN_VALUE` vẫn là `Integer.MIN_VALUE` vì overflow; ví dụ `abs` không xử lý biên này.
+- Numeric conditional có thể unbox dù nhánh được chọn là wrapper: `Integer n = null; int x = ok ? n : 0;` ném NPE nếu chọn `n`. `-Integer.MIN_VALUE` vẫn là `Integer.MIN_VALUE` vì overflow; dùng `Math.absExact` nếu muốn bắt biên này.
 - Đừng lồng ternary sâu — dùng `if` / switch expression.
+
+### 10.1 Bẫy suy kiểu & Unboxing ẩn của `?:` (JLS §15.25)
+
+Khi hai nhánh là hai wrapper số khác nhau (hoặc 1 wrapper + 1 primitive), JLS phân loại đó là **numeric conditional expression** và buộc **unbox + numeric promotion** cả hai nhánh rồi mới box lại:
+
+```java
+boolean pickFirst = true;
+Integer i = null;
+Double d = pickFirst ? i : Double.valueOf(1.0);
+// BẪY NPE! Kiểu của biểu thức (i : Double) được promote thành `double` nguyên thủy,
+// nên nhánh `i` bị unbox `i.intValue()` → NullPointerException dù biến đích là Double!
+
+// An toàn: đồng nhất kiểu cùng wrapper hoặc dùng if/else
+Double safe = pickFirst ? (i != null ? i.doubleValue() : null) : 1.0;
+```
 
 ---
 
@@ -410,11 +483,10 @@ Checklist:
 | File | Liên quan |
 |------|-----------|
 | [typesystem.md](typesystem.md) | Identity vs equals, wrapper cache |
-| [statements.md](statements.md) | Switch, patterns, `yield` |
+| [statements.md](statements.md) | Switch, patterns, `yield`, pattern preview (JEP 532) |
 | [literals.md](literals.md) | Literal số, text block |
 | [lambdas-functional.md](lambdas-functional.md) | `->` `::` |
 | [oop.md](oop.md) | `equals` / `hashCode` |
-| [statements.md](statements.md) | Pattern preview (JEP 532) |
 
 ---
 

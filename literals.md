@@ -18,12 +18,15 @@ Java không có `decimal` suffix như C#; số thực mặc định là `double`
 - [3. Dấu gạch dưới `_` trong số](#3-dấu-gạch-dưới-_-trong-số)
 - [4. Binary / hex / octal](#4-binary--hex--octal)
 - [5. `char` & escape sequences](#5-char--escape-sequences)
+  - [5.1 Lexical Translation Pipeline (JLS §3.2)](#51-lexical-translation-pipeline-jls-32)
 - [6. `String` literal](#6-string-literal)
 - [7. Text blocks `"""`](#7-text-blocks-)
+  - [7.4 Thuật toán 3 bước xử lý Text Block (JLS §3.10.6)](#74-thuật-toán-3-bước-xử-lý-text-block-jls-3106)
 - [8. `boolean` & `null`](#8-boolean--null)
 - [9. Class literals & enum constants](#9-class-literals--enum-constants)
 - [10. `_` unnamed vs underscore số](#10-_-unnamed-vs-underscore-số)
 - [11. Bảng tóm tắt suffix & mặc định](#11-bảng-tóm-tắt-suffix--mặc-định)
+  - [11.1 Compile-Time Constant Inlining (JLS §15.28) \& `HexFormat` (Java 17+)](#111-compile-time-constant-inlining-jls-1528--hexformat-java-17)
 - [12. Pitfalls (Bẫy)](#12-pitfalls-bẫy)
 - [13. Best practices](#13-best-practices)
 - [Xem thêm](#xem-thêm)
@@ -162,6 +165,15 @@ int grinning = 0x1F600; // code point
 char[] chars = Character.toChars(grinning);
 ```
 
+### 5.1 Lexical Translation Pipeline (JLS §3.2)
+
+`javac` dịch file nguồn qua 3 bước cố định:
+1. **Dịch Unicode escape (`\uXXXX`, kể cả nhiều `u` như `\uuuu0041`)** trên toàn bộ dòng ký tự — **trước** cả khi tách comment hay chuỗi!
+2. Chuẩn hóa ký tự xuống dòng (`\r\n`, `\r` → `\n`).
+3. Tách token (identifier, keyword, literal, comment).
+
+Hệ quả kinh điển: viết `// path: C:\users\test` hoặc `// \u000a System.out.println("runs!");` sẽ gặp lỗi cú pháp hoặc thậm chí biến phần sau `\u000a` (newline) thành code thật thực thi được!
+
 ---
 
 ## 6. `String` literal
@@ -195,7 +207,7 @@ String c = new String("java");
 String json = """
         {
           "name": "Java",
-          "version": 25
+          "version": 27
         }
         """;
 
@@ -232,7 +244,7 @@ In `String` / dùng IDE “Show whitespaces” khi debug JSON/YAML lệch.
 
 | Escape / cú pháp | Tác dụng |
 |------------------|----------|
-| `"` thường | Không cần `\"` cho dấu ngoặc kép bên trong |
+| `"` thường | Không cần `\"` cho `"` hoặc `""` bên trong; nếu cần viết `"""` bên trong thì escape ít nhất một dấu: `\"""` |
 | `\"` / `\\` | Vẫn hợp lệ khi cần |
 | `\s` | Giữ **một** khoảng trắng (kể cả cuối dòng — chống strip trailing) |
 | `\` cuối dòng | **Line continuation** — nối với dòng sau, bỏ newline |
@@ -259,6 +271,13 @@ String continued = """
 | Indent | Thủ công | Incidental strip theo delimiter |
 | Trailing space | Giữ trong literal | Có thể bị strip → dùng `\s` |
 
+### 7.4 Thuật toán 3 bước xử lý Text Block (JLS §3.10.6)
+
+Compiler xử lý text block theo đúng 3 bước tuần tự:
+1. **Chuẩn hóa line terminator:** mọi `\r\n` (Windows) và `\r` đều chuyển thành `\n` → nội dung text block **nhất quán giữa Windows và Linux/macOS**.
+2. **Xóa incidental whitespace & trailing whitespace:** tìm khoảng trắng thụt lề chung nhỏ nhất (tính trên các dòng không trống và dòng chứa `"""` đóng nếu đứng riêng) rồi cắt bỏ; đồng thời cắt mọi khoảng trắng thừa ở cuối mỗi dòng.
+3. **Dịch escape sequences (`\n`, `\t`, `\s`, `\` nối dòng…):** vì chạy ở **bước cuối**, nên `\s` giữ được khoảng trắng cuối dòng (không bị bước 2 xóa), và `\n` hay `\"` không làm lệch tính toán indent của bước 2.
+
 ---
 
 ## 8. `boolean` & `null`
@@ -284,6 +303,7 @@ Class<Integer> ci = int.class;     // Class đại diện primitive
 Class<?> voidC = void.class;
 ```
 
+- `int.class` có kiểu compile-time là `Class<Integer>` theo JLS §15.8.2, nhưng lúc chạy `int.class == Integer.TYPE` và **`int.class != Integer.class`**.
 - Reflection, generic APIs, `ServiceLoader` — [packages-modules.md](packages-modules.md).
 - `List.class` là raw — cẩn thận unchecked.
 
@@ -357,6 +377,19 @@ public static final int MAX = 100;
 public static final String NAME = "app" + "-" + MAX;
 ```
 
+### 11.1 Compile-Time Constant Inlining (JLS §15.28) & `HexFormat` (Java 17+)
+
+- **Bẫy Binary Compatibility khi inline hằng số:** với `public static final` kiểu **primitive hoặc `String`** được khởi tạo bằng constant expression (vd. `public static final int VERSION = 1;`), `javac` **copy trực tiếp giá trị `1` vào bytecode của mọi lớp gọi nó**. Nếu thư viện đổi `VERSION = 2` mà ứng dụng chỉ thay file JAR không biên dịch lại, ứng dụng vẫn chạy với giá trị `1`! Khi cần giá trị có thể đổi giữa các bản JAR, để là method `public static int version() { return 2; }` hoặc khởi tạo runtime (`Integer.valueOf(1)`).
+- **`java.util.HexFormat` (Java 17+):** thay thế hoàn toàn vòng lặp bit thủ công khi chuyển đổi `byte[]` ↔ chuỗi hex:
+
+```java
+HexFormat hex = HexFormat.of();
+String s = hex.formatHex(new byte[] {0x0a, (byte) 0xff}); // "0aff"
+byte[] bytes = hex.parseHex("0aff");
+
+String mac = HexFormat.ofDelimiter(":").withUpperCase().formatHex(bytes); // "0A:FF"
+```
+
 ---
 
 ## 12. Pitfalls (Bẫy)
@@ -408,7 +441,6 @@ String yaml = """
 | [operators.md](operators.md) | `==` trên literal / pool |
 | [keywords.md](keywords.md) | Unnamed `_` |
 | [statements.md](statements.md) | Pattern / switch với literal & `_` |
-| [typesystem.md](typesystem.md) | Kiểu & literal |
 
 ---
 

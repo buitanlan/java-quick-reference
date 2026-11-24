@@ -18,10 +18,12 @@ type-safety compile-time; erasure giữ tương thích bytecode. Tài liệu nh�
 - [3. Set](#3-set)
 - [4. Deque / Queue / Stack](#4-deque--queue--stack)
 - [5. Map](#5-map)
+  - [5.4 Internals & Sizing (`HashMap`, `LinkedHashMap` LRU, `ConcurrentHashMap`)](#54-internals--sizing-hashmap-linkedhashmap-lru-concurrenthashmap)
 - [6. Sequenced Collections (Java 21+)](#6-sequenced-collections-java-21)
 - [7. Unmodifiable vs immutable](#7-unmodifiable-vs-immutable)
 - [8. Concurrent collections & fail-fast CME](#8-concurrent-collections--fail-fast-cme)
 - [9. Generics](#9-generics)
+  - [9.5 Patterns nâng cao: Recursive Bounds, Type-Safe Heterogeneous Container \& Generic Arrays](#95-patterns-nâng-cao-recursive-bounds-type-safe-heterogeneous-container--generic-arrays)
 - [10. Duyệt & tiện ích](#10-duyệt--tiện-ích)
 - [11. Cheat sheet chọn cấu trúc](#11-cheat-sheet-chọn-cấu-trúc)
 - [12. Pitfalls (Bẫy)](#12-pitfalls-bẫy)
@@ -132,9 +134,10 @@ String last  = dq.removeLast();
 ```
 
 - **`ArrayDeque`**: vòng mảng — nhanh, không chấp nhận `null`.
-- **`PriorityQueue`**: heap theo comparator — **không** FIFO; peek = phần tử nhỏ nhất (mặc định).
+- **`PriorityQueue`**: heap theo comparator — **không** FIFO, **không** nhận `null`; `peek`/`poll` lấy phần tử nhỏ nhất, nhưng **duyệt bằng iterator / `for-each` không bảo đảm theo thứ tự đã sort**.
+- **Nhóm API `Queue` / `Deque`**: ném exception khi rỗng/đầy (`add` / `remove` / `element`, và `*First`/`*Last`) vs trả giá trị đặc biệt `false`/`null` (`offer` / `poll` / `peek`, và `*First`/`*Last`).
 - Class `Stack` là legacy — dùng `Deque` (`push`/`pop` = `addFirst`/`removeFirst`).
-- Concurrent: `ConcurrentLinkedQueue`, `LinkedBlockingQueue`, `ArrayBlockingQueue`, `DelayQueue`…
+- Concurrent: `ConcurrentLinkedQueue`, `LinkedBlockingQueue`, `ArrayBlockingQueue`, `SynchronousQueue`, `DelayQueue`, `ConcurrentSkipListMap`/`Set`…
 
 ```java
 Queue<Integer> pq = new PriorityQueue<>();
@@ -182,7 +185,7 @@ hits.putIfAbsent("about", new LongAdder());
 
 > Đừng iterate + remove bằng cách thông thường không an toàn; dùng `Iterator.remove`, `entrySet().removeIf`, hoặc concurrent methods.
 
-Iterator của `ConcurrentHashMap` là **weakly consistent**, cho phép cập nhật đồng thời; không phải fail-fast. Tính atomic của `compute*`/`merge` theo key không làm một chuỗi nhiều lời gọi hoặc nhiều key thành transaction.
+Iterator của `ConcurrentHashMap` là **weakly consistent**, cho phép cập nhật đồng thời; không phải fail-fast. Tính atomic của `compute*`/`merge` theo key không làm một chuỗi nhiều lời gọi hoặc nhiều key thành transaction. **Bẫy quan trọng:** không cập nhật đệ quy chính map đó bên trong callback của `compute*`/`merge` (ném `IllegalStateException: Recursive update` hoặc deadlock cùng bucket), và tránh chạy blocking I/O dài bên trong `computeIfAbsent` vì giữ khóa bin.
 
 ### 5.3 Các Map khác
 
@@ -193,6 +196,28 @@ Iterator của `ConcurrentHashMap` là **weakly consistent**, cho phép cập nh
 | `EnumMap` | Key = enum — array-backed |
 | `WeakHashMap` | Entry thu hồi khi key chỉ còn weak ref — cache cẩn thận |
 | `IdentityHashMap` | So sánh `==` không phải `equals` |
+
+### 5.4 Internals & Sizing (`HashMap`, `LinkedHashMap` LRU, `ConcurrentHashMap`)
+
+- **`HashMap` sizing & treeify:**
+  - Capacity luôn là lũy thừa của 2; load factor mặc định `0.75` (vượt `capacity * 0.75` → resize gấp đôi và rehash toàn bộ).
+  - **Java 19+ static factories tránh tính nhầm capacity:** dùng **`HashMap.newHashMap(expectedSize)`** / **`LinkedHashMap.newLinkedHashMap(expectedSize)`** / **`HashSet.newHashSet(expectedSize)`** thay vì `new HashMap<>(expectedSize)` (truyền thẳng `100` vào constructor chỉ chịu được 75 phần tử trước khi rehash!).
+  - Bucket có `>= 8` phần tử (`TREEIFY_THRESHOLD`) **và** tổng bảng `>= 64` (`MIN_TREEIFY_CAPACITY`) sẽ chuyển từ linked list sang **Red-Black Tree** → worst-case giảm từ O(n) xuống O(log n); key implement `Comparable` giúp phá hòa nhanh hơn khi hash trùng.
+- **`LinkedHashMap` làm LRU Cache đơn giản (single-thread / bọc lock):**
+
+```java
+static <K, V> Map<K, V> lruCache(int maxEntries) {
+    return new LinkedHashMap<>(16, 0.75f, true) { // accessOrder = true → get/put đưa entry về cuối
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+            return size() > maxEntries;
+        }
+    };
+}
+```
+
+- **`ConcurrentHashMap` internals (Java 8+):** bỏ cơ chế *segment* cố định cũ; dùng mảng node kết hợp **CAS** cho bucket rỗng và khóa **`synchronized` trên từng node đầu bucket** khi có va chạm. Dùng `mappingCount()` (trả `long`) thay `size()` (trả `int` ước lượng) cho map cực lớn.
+- **`ArrayList` vs `ArrayDeque`:** `ArrayList` tăng sức chứa ~**1.5x** mỗi lần mở rộng (`trimToSize()` thu gọn sau khi xây xong); `ArrayDeque` dùng mảng vòng lũy thừa 2 không cần tạo object `Node` như `LinkedList` → thắng tuyệt đối cả về tốc độ lẫn RAM cho queue/stack.
 
 ---
 
@@ -224,7 +249,9 @@ map.pollFirstEntry();
 ```
 
 - `ArrayList`, `LinkedList`, `LinkedHashSet`, `TreeSet`, `LinkedHashMap`, `TreeMap`… implement các sequenced interfaces phù hợp.
-- `reversed()` thường là **view** — sửa view ảnh hưởng nguồn (tùy impl).
+- `reversed()` thường là **view** — sửa view ảnh hưởng nguồn (tùy impl). `getFirst`/`getLast`/`removeFirst`/`removeLast` ném `NoSuchElementException` khi rỗng.
+- Với `LinkedHashMap` / `LinkedHashSet`, `putFirst`/`putLast` và `addFirst`/`addLast` sẽ **di chuyển lại vị trí** lên đầu/cuối nếu key/phần tử đã tồn tại.
+- View chỉ đọc tương ứng (Java 21+): `Collections.unmodifiableSequencedCollection`, `unmodifiableSequencedSet`, `unmodifiableSequencedMap`.
 - `SortedSet`/`SortedMap` giữ sorted order: `addFirst`/`addLast` hoặc `putFirst`/`putLast` ném `UnsupportedOperationException`. Có sequenced interface không có nghĩa mọi mutation đều được hỗ trợ.
 
 ---
@@ -263,6 +290,7 @@ view.size(); // 2 — view thấy thay đổi nguồn
 ```
 
 - `List.of` / `Set.of` / `Map.of`: không `null`; `Set.of` trùng phần tử → `IllegalArgumentException`.
+- `List.copyOf` / `Set.copyOf` / `Map.copyOf` cũng **cấm `null`** (khác `Collections.unmodifiableList`, dễ dính NPE khi migrate từ wrapper cũ); nếu đầu vào đã là unmodifiable collection hợp lệ thì trả lại chính instance đó không copy thừa.
 - `Collections.emptyList()` / `singletonList` / `nCopies` — cố định kích thước theo hợp đồng từng API.
 - Trả collection ra ngoài API: prefer `List.copyOf` / `Map.copyOf` hơn expose field mutable hoặc chỉ unmodifiable view nếu nguồn vẫn giữ quyền ghi.
 
@@ -433,6 +461,57 @@ var list2 = new ArrayList<String>();       // OK
 var list3 = new ArrayList<>();             // ArrayList<Object> — thường sai ý!
 ```
 
+### 9.5 Patterns nâng cao: Recursive Bounds, Type-Safe Heterogeneous Container & Generic Arrays
+
+#### Recursive Type Bound (CRTP — Fluent Builder kế thừa)
+
+```java
+abstract class RequestBuilder<SELF extends RequestBuilder<SELF>> {
+    protected String url;
+    public SELF url(String url) { this.url = url; return self(); }
+    protected abstract SELF self();
+}
+
+final class AuthRequestBuilder extends RequestBuilder<AuthRequestBuilder> {
+    private String token;
+    public AuthRequestBuilder token(String t) { this.token = t; return this; }
+    @Override protected AuthRequestBuilder self() { return this; }
+}
+// new AuthRequestBuilder().url("...").token("...") — vẫn giữ kiểu cụ thể AuthRequestBuilder!
+```
+
+*(Tương tự `public abstract class Enum<E extends Enum<E>> implements Comparable<E>` trong JDK.)*
+
+#### Type-Safe Heterogeneous Container (Effective Java)
+
+Khi một `Map` cần chứa nhiều kiểu giá trị khác nhau nhưng vẫn an toàn kiểu lúc compile, dùng `Class<T>` làm key:
+
+```java
+public final class ContextStore {
+    private final Map<Class<?>, Object> values = new HashMap<>();
+
+    public <T> void put(Class<T> type, T instance) {
+        values.put(Objects.requireNonNull(type), type.cast(instance)); // kiểm runtime chống raw-type bypass
+    }
+
+    public <T> Optional<T> get(Class<T> type) {
+        return Optional.ofNullable(type.cast(values.get(type)));
+    }
+}
+```
+
+#### Tạo mảng cho kiểu generic (`new T[]` bị cấm)
+
+Không thể viết `new T[n]` vì erasure. Ba cách chuẩn:
+1. **Ưu tiên `List<T>`** thay vì mảng.
+2. Nhận factory `IntFunction<T[]> generator` (giống `Stream.toArray(String[]::new)`).
+3. Nhận `Class<T>` và dùng `(T[]) Array.newInstance(type, size)` (hoặc giữ `Object[]` nội bộ được đóng gói kín như `ArrayList`).
+
+#### Diamond với Anonymous Class (Java 9+) & Type Witness
+
+- Java 9+ cho phép `Comparator<String> c = new Comparator<>() { ... };` miễn kiểu suy ra biểu diễn được (denotable).
+- Khi inference không suy được kiểu (nhất là trong chuỗi method), chỉ định tường minh bằng **type witness**: `Collections.<String>emptyList()`, `Stream.<String>builder()`.
+
 ---
 
 ## 10. Duyệt & tiện ích
@@ -453,7 +532,7 @@ list.sort(String.CASE_INSENSITIVE_ORDER); // binarySearch cần sort lại sau s
 Collections.binarySearch(list, "B", String.CASE_INSENSITIVE_ORDER);
 ```
 
-- `Arrays.asList(...)`: **fixed-size** (backed by array) — `set` OK, `add` không.
+- `Arrays.asList(...)`: **fixed-size** (backed by array) — `set` OK, `add`/`remove` không, cho phép `null`. **Bẫy primitive array:** `Arrays.asList(new int[]{1, 2})` tạo `List<int[]>` kích thước 1, không phải `List<Integer>` — dùng `Arrays.stream(arr).boxed().toList()`.
 - `subList`: **view** — structural change nguồn có thể invalidate.
 - Stream: [streams.md](streams.md).
 

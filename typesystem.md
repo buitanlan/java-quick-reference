@@ -6,8 +6,7 @@ biên dịch (trừ các lỗ hổng cố ý như raw types / unchecked cast). H
 
 > Tài liệu nhắm **Java 27**; tính năng theo phiên bản được ghi rõ (Java 8 → 27) — xem [ma trận ở cuối](#18-ma-trận-tính-năng-theo-phiên-bản-java-8--27).
 >
-> Liên quan: [oop.md](oop.md) · [collections-generics.md](collections-generics.md) · [literals.md](literals.md) ·
-> [operators.md](operators.md) · [keywords.md](keywords.md)
+> Liên quan: [oop.md](oop.md) · [collections-generics.md](collections-generics.md) · [memory-ffm.md](memory-ffm.md) · [annotations.md](annotations.md) · [functional.md](functional.md) · [literals.md](literals.md) · [operators.md](operators.md) · [keywords.md](keywords.md)
 
 Baseline thực hành hiện đại (Java 27): records, sealed types, pattern matching cho `instanceof`/`switch`,
 virtual threads — dùng như mặc định khi nói “code hiện tại”. Value types (Project Valhalla) chỉ nhắc như hướng tương lai.
@@ -31,7 +30,9 @@ virtual threads — dùng như mặc định khi nói “code hiện tại”. V
     - [5.1 Bẫy — Integer cache \& `==` trên wrappers](#51-bẫy--integer-cache---trên-wrappers)
   - [6. Mảng (`T[]`)](#6-mảng-t)
     - [6.1 Bẫy — Array covariance \& `ArrayStoreException`](#61-bẫy--array-covariance--arraystoreexception)
-  - [7. `String`, `Object` hierarchy](#7-string-object-hierarchy)
+  - [7. `String`, `Object` hierarchy, Text & `java.time`](#7-string-object-hierarchy-text--javatime)
+    - [7.1 `String` hiện đại, Unicode, `Locale.ROOT` \& Regex (tóm tắt)](#71-string-hiện-đại-unicode-localeroot--regex-tóm-tắt)
+    - [7.2 Ngày giờ (`java.time`, tóm tắt)](#72-ngày-giờ-javatime-tóm-tắt)
   - [8. `null`, `void` / `Void`, `var`](#8-null-void--void-var)
     - [8.1 `var` — edge cases](#81-var--edge-cases)
   - [9. Generics \& type erasure (depth)](#9-generics--type-erasure-depth)
@@ -287,10 +288,12 @@ void handle() {
 static final List<Worker> POOL = List.ofLazy(4, _ -> new Worker());
 static final Map<Option, Boolean> FLAGS =
         Map.ofLazy(Set.of(Option.VERBOSE), Application::isOn);
+static final Set<Option> ACTIVE =
+        Set.ofLazy(EnumSet.allOf(Option.class), Application::isOn); // JEP 531 (JDK 27): Set<? extends E> + Predicate<? super E>
 ```
 
 - Không dùng `null` làm giá trị computed.
-- Java 27: computing function chạy tối đa một lần; nếu ném unchecked exception hoặc trả `null`, holder chuyển sang **error state**, không retry. `get()` ném `NoSuchElementException`; lần gây lỗi mang cause gốc, các lần sau chỉ mang tên lớp lỗi trong message. Object content vẫn có thể mutable; holder không làm nó deep-immutable. Xem [API `LazyConstant`](https://docs.oracle.com/en/java/javase/27/docs/api/java.base/java/lang/LazyConstant.html).
+- Java 27: computing function chạy tối đa một lần; nếu ném unchecked exception, trả `null`, hoặc **gọi đệ quy chính nó** (cycle → cause `IllegalStateException`), holder chuyển sang **error state**, không retry. `get()` ném `NoSuchElementException`; lần gây lỗi mang cause gốc, các lần sau chỉ mang tên lớp lỗi trong message. Object content vẫn có thể mutable; holder không làm nó deep-immutable. Xem [API `LazyConstant`](https://docs.oracle.com/en/java/javase/27/docs/api/java.base/java/lang/LazyConstant.html).
 - Khác `ScopedValue`: lazy constant là **state ứng dụng**; ScopedValue là **context theo call-chain**.
 
 ---
@@ -394,7 +397,7 @@ Hệ quả thực tế:
 
 ---
 
-## 7. `String`, `Object` hierarchy
+## 7. `String`, `Object` hierarchy, Text & `java.time`
 
 ```text
 java.lang.Object
@@ -419,12 +422,33 @@ khi có `java.util.concurrent`), `clone` (protected, dễ sai — ưu tiên copy
   Dùng `formatted()`, `MessageFormat`, text block, hoặc `StringBuilder`.
 
 ```java
-String s = "Java " + 25;
+String s = "Java " + 27;
 String t = """
         line1
         line2
         """;
 ```
+
+### 7.1 `String` hiện đại, Unicode, `Locale.ROOT` & Regex (tóm tắt)
+
+- **Compact Strings (Java 9+, JEP 254):** lưu `byte[]` dạng `LATIN1` (1 byte/ký tự) hoặc `UTF16` (2 byte/code unit) tùy nội dung. Toán tử `+` biên dịch thành `invokedynamic` (`StringConcatFactory`), nhưng trong vòng lặp vẫn phải dùng `StringBuilder` / `Collectors.joining`.
+- **API hiện đại (Java 11–21+):** ưu tiên `isBlank()`, `strip()`/`stripLeading()`/`stripTrailing()` (cắt cả Unicode whitespace, khác `trim()` chỉ cắt `<= '\u0020'`), `lines()`, `formatted(...)`, `repeat(n)`, `splitWithDelimiters(regex, -1)` (21+). Với `split(",")`, truyền `limit = -1` để không mất cột rỗng cuối.
+- **Unicode & `Locale.ROOT`:** `char` là UTF-16 code unit — emoji/ký tự ngoài BMP chiếm 2 `char` (dùng `codePoints()` thay `charAt`); văn bản tiếng Việt từ nhiều OS có thể lệch NFC/NFD → `Normalizer.normalize(s, Normalizer.Form.NFC)` trước khi so sánh. Chuyển hoa/thường dữ liệu kỹ thuật (header, enum, SQL) **luôn truyền `Locale.ROOT`** để tránh bẫy Turkish `i`/`I`.
+- **Regex (`Pattern` / `Matcher`):** `Pattern` immutable & thread-safe — compile thành `static final` để tái sử dụng; `String.replace` thay literal còn `replaceAll` dùng regex (dùng `Pattern.quote` / `Matcher.quoteReplacement` khi ghép input động); tránh quantifier lồng nhau gây ReDoS (backtracking hàm mũ).
+
+### 7.2 Ngày giờ (`java.time`, tóm tắt)
+
+Mọi kiểu trong `java.time` đều **immutable & thread-safe** (thay thế hoàn toàn `java.util.Date` / `Calendar` / `SimpleDateFormat`):
+
+| Kiểu | Chứa gì | Dùng khi |
+|---|---|---|
+| `Instant` | Điểm UTC (epoch seconds + nanos) | Timestamp backend, log, DB `TIMESTAMPTZ`, TTL |
+| `LocalDate` / `LocalTime` / `LocalDateTime` | Ngày/giờ lịch **không** timezone | Ngày sinh, lịch cục bộ; **không** dùng `LocalDateTime.now()` làm timestamp toàn cầu |
+| `OffsetDateTime` / `ZonedDateTime` | Ngày + giờ + offset hoặc IANA `ZoneId` | Wire format ISO-8601 (`OffsetDateTime`), lịch có quy tắc DST (`ZonedDateTime` với `ZoneId.of("Asia/Ho_Chi_Minh")`) |
+| `Duration` vs `Period` | Giây/nano vs năm/tháng/ngày lịch | Timeout/latency dùng `Duration`; tổng số ngày giữa 2 `LocalDate` dùng `ChronoUnit.DAYS.between` (không dùng `Period.getDays()` vì chỉ trả phần dư `0..30`) |
+
+- **`DateTimeFormatter`:** khai báo `static final`, dùng `uuuu` (tránh `YYYY` — week-based year dễ nhảy năm cuối tháng 12) + `ResolverStyle.STRICT` + `Locale.ROOT` khi parse dữ liệu chặt.
+- **Testability & đo thời gian:** inject `java.time.Clock` (`Clock.fixed(...)` trong unit test) thay vì gọi `Instant.now()` trực tiếp; đo elapsed time/latency dùng **`System.nanoTime()`** (monotonic, không nhảy lùi theo NTP).
 
 ---
 
@@ -564,7 +588,6 @@ Varargs có non-reifiable element type có thể tạo mảng sau erasure → c�
 
 ```java
 @SafeVarargs
-@SuppressWarnings("varargs")
 static <T> List<T> flatten(List<T>... lists) {
     // Chỉ an toàn nếu method không để mảng `lists` escape / bị ghi bởi caller không tin cậy
     List<T> out = new ArrayList<>();
@@ -916,10 +939,10 @@ Values
 | **18–19** | Pattern switch tiếp tục preview; record patterns bắt đầu preview ở 19 |
 | **20** | Record patterns / pattern switch tiến hóa |
 | **21 LTS** | Pattern matching for `switch` **final**; record patterns **final**; unnamed patterns/vars *(preview)*; sequenced collections |
-| **22** | Unnamed variables & patterns **final**; string templates **Second Preview**, rút khỏi 23+ |
-| **23–24** | Primitive types in patterns *(preview, JEP 455/488)*; markdown docs… |
-| **25 LTS** | Flexible constructors **final** (JEP 513); Scoped Values **final**; compact source/main; module import; Compact Object Headers **product** (JEP 519, chưa default); primitive patterns *(preview JEP 507)* |
-| **26** | JEP 500: cảnh báo mutate `final` qua reflection; HTTP/3 `HttpClient`; Lazy Constants *(preview, ex Stable Values)*; primitive patterns *(preview JEP 530)* |
+| **22** | Unnamed variables & patterns **final**; FFM API **final** (JEP 454); string templates **Second Preview**, rút khỏi 23+ |
+| **23–24** | Primitive types in patterns *(preview, JEP 455/488)*; Stream Gatherers **final** (JEP 485) & Class-File API **final** (JEP 484) ở 24; markdown docs… |
+| **25 LTS** | Flexible constructors **final** (JEP 513); Scoped Values **final** (JEP 506); compact source/main (JEP 512); module import (JEP 511); Compact Object Headers **product** (JEP 519, chưa default); Stable Values *(First Preview JEP 502)*; primitive patterns *(preview JEP 507)* |
+| **26** | JEP 500: cảnh báo mutate `final` qua reflection; HTTP/3 `HttpClient` (JEP 517); Lazy Constants *(Second Preview JEP 526, đổi tên từ Stable Values)*; primitive patterns *(Fourth Preview JEP 530)* |
 | **27** | Compact Object Headers **mặc định** (JEP 534); G1 default everywhere (JEP 523); primitive patterns **Fifth Preview** (JEP 532); Lazy Constants **Third Preview** (JEP 531) |
 
 Baseline tài liệu này = **Java 27** (final language features + ghi chú preview rõ ràng). LTS gần nhất: **25**.

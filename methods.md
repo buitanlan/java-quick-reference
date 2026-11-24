@@ -129,6 +129,15 @@ g(null); // chọn g(String) — most specific
 
 **Khuyến nghị:** tránh overload chỉ khác boxing / varargs / `Object` vs kiểu hẹp — API khó đoán. Prefer tên khác hoặc factory rõ.
 
+### 2.2 Bẫy Overload Resolution kinh điển (JLS §15.12.2)
+
+- **Widening thắng Boxing:** gọi `m(5)` với hai overload `m(long)` và `m(Integer)` → chọn **`m(long)`** (phase 1 strict invocation chạy trước phase 2 loose invocation).
+- **Không gộp Widening + Boxing sang wrapper khác:** `int` không thể tự chuyển thành `Long` (`void m(Long x)` không nhận `int 5` vì phải vừa widen `int→long` vừa box `long→Long`).
+- **Bẫy `List.remove`:** `List<Integer> list = new ArrayList<>(List.of(10, 20));`
+  - `list.remove(1)` gọi `remove(int index)` (xóa phần tử tại vị trí 1 → xóa `20`).
+  - `list.remove(Integer.valueOf(1))` mới gọi `remove(Object o)` (xóa giá trị `1`).
+- **Overload + Lambda / Method Ref:** nếu hai overload đều nhận functional interface cùng arity (`submit(Runnable)` vs `submit(Callable<T>)`), biểu thức có giá trị trả về (như `() -> 42`) chọn `Callable`, statement void chọn `Runnable`; trường hợp mơ hồ (ví dụ `list::add` vừa trả `boolean` vừa tương thích `void`) cần cast target tường minh.
+
 ---
 
 ## 3. Varargs & `@SafeVarargs`
@@ -256,6 +265,32 @@ public static Calculator ofDefault() {
     return new Calculator();
 }
 ```
+
+### 5.3 Bytecode Dispatch & JIT Inline Caches
+
+Mỗi lời gọi phương thức biên dịch ra một trong 5 lệnh bytecode JVM:
+
+| Bytecode | Dùng cho | Đặc điểm dispatch |
+|---|---|---|
+| `invokevirtual` | Instance method thông thường | Dynamic dispatch qua vtable; JIT dùng inline cache |
+| `invokeinterface` | Gọi qua kiểu `interface` | Dynamic dispatch qua itable |
+| `invokespecial` | Constructor `<init>`, `private` method, `super.m()` | Static binding (không tra cứu vtable) |
+| `invokestatic` | `static` method | Static binding trực tiếp vào class |
+| `invokedynamic` | Lambda, `String` concat (Java 9+), switch bootstrap | Liên kết động lần đầu qua bootstrap method (`CallSite`) |
+
+- **JIT Inline Caches (HotSpot C2):**
+  - **Monomorphic** (call site chỉ gặp 1 runtime class) và **Bimorphic** (2 runtime class): JIT dễ dàng **inline** thẳng thân method (devirtualization) → gần như không tốn chi phí đa hình.
+  - **Megamorphic** (≥3 implementation ở cùng call site nóng): không inline trực tiếp, rơi về tra cứu vtable/itable.
+
+### 5.4 Ma trận Override vs Hide vs Overload
+
+| Quy tắc | Override (instance) | Hide (`static` / field) | Overload |
+|---|---|---|---|
+| Chữ ký (tên + params) | Phải giống (hoặc override-equivalent sau erasure) | Phải giống | **Khác** danh sách tham số |
+| Kiểu trả về | Giống hoặc **covariant subtype** | Giống hoặc covariant (static method) | Bất kỳ |
+| Access modifier | Giữ nguyên hoặc **mở rộng hơn** (`protected` → `public`) | Giữ nguyên hoặc mở rộng hơn | Bất kỳ |
+| `throws` checked | Giữ nguyên, **hẹp hơn**, hoặc bỏ bớt (không thêm checked mới) | Giữ nguyên / hẹp hơn | Bất kỳ |
+| Resolve lúc nào | **Runtime** (theo kiểu đối tượng thật) | **Compile-time** (theo kiểu biến tham chiếu) | **Compile-time** |
 
 ---
 
@@ -527,6 +562,16 @@ public record Point(int x, int y) {
 
 `x()`, `y()` — không phải `getX()` trừ khi bạn tự viết thêm.
 
+### 13.4 Receiver Parameter (`Type this`) & Quy ước đặt tên Static Factory
+
+- **Receiver parameter (Java 8+):** tham số đầu tiên tùy chọn dạng `void process(@ReadOnly MyService this, int x)` không thêm đối số thực tế khi gọi — chỉ dùng để gắn **type-use annotation** lên chính `this` (cho Checker Framework / static analyzer).
+- **Quy ước đặt tên static factory trong JDK (Effective Java):**
+  - `from(singleParam)`: chuyển đổi kiểu (`Date.from(instant)`).
+  - `of(params...)`: tổng hợp nhiều tham số (`List.of(...)`, `LocalDate.of(...)`).
+  - `valueOf(...)`: thay thế rõ nghĩa hơn cho `from`/`of` (`Integer.valueOf("42")`).
+  - `getInstance` / `newInstance`: trả instance (có thể cache hoặc luôn tạo mới).
+  - `getType` / `newType`: factory đặt ở class khác (`Files.newBufferedReader(...)`).
+
 ---
 
 ## 14. Pitfalls (Bẫy)
@@ -554,7 +599,7 @@ public record Point(int x, int y) {
 6. Interface: default để tiến hóa API; đừng nhồi business state.
 7. Record: validation trong compact constructor; logic thuần là instance method.
 8. Ctor: không gọi overridable; prefer factory nếu cần đa hình sau init.
-9. Virtual threads: method blocking I/O ổn trên VT; tránh pin / `ThreadLocal` nặng khi scale cực lớn.
+9. Virtual threads: method blocking I/O ổn trên VT; tránh native pinning, giữ lock ngắn để giảm contention và hạn chế `ThreadLocal` nặng khi scale cực lớn.
 
 ```text
 □ @Override mọi override
@@ -572,7 +617,7 @@ public record Point(int x, int y) {
 public final class MethodsCheatSheet {
 
     public static <T> T requireNonNull(T value, String msg) {
-        if (value == null) throw new IllegalArgumentException(msg);
+        if (value == null) throw new NullPointerException(msg); // cùng convention với Objects.requireNonNull
         return value;
     }
 
@@ -612,12 +657,11 @@ public final class MethodsCheatSheet {
 
 | File | Liên quan |
 |------|-----------|
-| [oop.md](oop.md) | Override, init order, records |
+| [oop.md](oop.md) | Override, init order, records, JEP 513 flexible constructors |
 | [typesystem.md](typesystem.md) | Erasure, bridge context |
 | [lambdas-functional.md](lambdas-functional.md) | `::`, SAM, checked in lambda |
 | [collections-generics.md](collections-generics.md) | Generic methods, PECS |
 | [exceptions.md](exceptions.md) | `throws` |
-| [oop.md](oop.md) | JEP 513 flexible constructors |
 
 ---
 

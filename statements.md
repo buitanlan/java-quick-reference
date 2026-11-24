@@ -15,10 +15,14 @@ vòng lặp, nhảy (`yield` vs `return`), try-with-resources, nhãn, và `synch
 - [3. Declaration statements](#3-declaration-statements)
 - [4. Expression statements](#4-expression-statements)
 - [5. Selection: `if` / `else`, `switch`](#5-selection-if--else-switch)
+  - [5.6 Flow Scoping của Pattern Variables (JLS §6.3.2)](#56-flow-scoping-của-pattern-variables-jls-632)
+  - [5.7 Dominance, Unconditional Patterns \& `MatchException` (Java 21+)](#57-dominance-unconditional-patterns--matchexception-java-21)
 - [6. Pattern matching & JEP 532 (preview)](#6-pattern-matching--jep-532-preview)
 - [7. Iteration: `for` / enhanced-for / `while` / `do`](#7-iteration-for--enhanced-for--while--do)
 - [8. Jump: `break` / `continue` / `return` / `yield` / `throw` / `assert`](#8-jump-break--continue--return--yield--throw--assert)
+  - [8.6 Definite Assignment \& Unreachable Statements (JLS §14.22)](#86-definite-assignment--unreachable-statements-jls-1422)
 - [9. Exception & resource: `try` / try-with-resources](#9-exception--resource-try--try-with-resources)
+  - [9.4 Thứ tự thực thi chính xác của Try-with-resources](#94-thứ-tự-thực-thi-chính-xác-của-try-with-resources)
 - [10. Labeled statements](#10-labeled-statements)
 - [11. `synchronized` statement](#11-synchronized-statement)
 - [12. Empty statement](#12-empty-statement)
@@ -195,7 +199,7 @@ static String describe(Object o) {
 record Point(int x, int y) {}
 ```
 
-- `case null` tách biệt (hành vi null cần khai báo rõ với pattern switch).
+- `case null` tách biệt (hành vi null cần khai báo rõ với pattern switch); có thể gộp `case null, default -> ...` để xử lý chung null và phần còn lại trong một nhánh.
 - `when` là guard; guard không phải constant `true` không giúp bao phủ toàn bộ type. `when true` được xử lý như nhánh không guard khi xét exhaustiveness/dominance.
 - Record / sealed hierarchies giúp compiler kiểm tra **exhaustiveness**.
 
@@ -261,6 +265,37 @@ String label(Object o) {
 
 Sealed types: [oop.md](oop.md). Pattern `instanceof`: [operators.md](operators.md).
 
+### 5.6 Flow Scoping của Pattern Variables (JLS §6.3.2)
+
+Biến pattern (`o instanceof String s`) **không** theo block scope thông thường mà theo **flow scoping** — nó chỉ tồn tại ở những vị trí mà compiler chứng minh được pattern **chắc chắn đã khớp**:
+
+```java
+// ĐÚNG với &&: vế phải chỉ chạy khi vế trái TRUE (s chắc chắn khớp)
+if (o instanceof String s && !s.isBlank()) {
+    System.out.println(s);
+}
+
+// SAI với ||: vế phải chạy khi vế trái FALSE (s chưa khớp!)
+// if (o instanceof String s || s.isBlank()) { } // LỖI BIÊN DỊCH
+
+// ĐÚNG với ! + ||: vế phải chỉ chạy khi !(o instanceof String s) là FALSE → o LÀ String!
+if (!(o instanceof String s) || s.isBlank()) {
+    return;
+}
+// Tại đây s vẫn nằm trong scope nhờ nhánh trên đã return!
+System.out.println(s.toUpperCase(Locale.ROOT));
+```
+
+- **Bẫy shadowing field:** nếu class có field tên `s`, thì ở nhánh `else` (nơi pattern variable `s` **không** ở trong scope), `s` sẽ âm thầm tham chiếu về **field `this.s`**!
+
+### 5.7 Dominance, Unconditional Patterns & `MatchException` (Java 21+)
+
+- **Unconditional pattern:** một type pattern `T x` là *unconditional* đối với selector kiểu `S` nếu mọi giá trị non-null của `S` chắc chắn là `T` (ví dụ `case Object o` trên selector `Object`, hoặc `case Shape s` trên selector `Shape`). Pattern unconditional **dominate** mọi case đứng sau nó (kể cả `default` → đặt `default` sau pattern unconditional sẽ gây lỗi compile!).
+- **Generic sealed exhaustiveness:** nếu `sealed interface Box<T> permits IntBox, StrBox` với `record IntBox(int v) implements Box<Integer>` và `record StrBox(String s) implements Box<String>`, thì `switch` trên `Box<String>` chỉ cần mỗi `case StrBox(var s)` là đã **exhaustive** (compiler loại trừ `IntBox` vì không tương thích `Box<String>`!).
+- **`java.lang.MatchException` (Java 21+):** ngoại lệ runtime do compiler chèn ở nhánh tổng quát ngầm của exhaustive switch khi xảy ra một trong hai tình huống:
+  1. **Separate compilation:** thư viện bên ngoài thêm hằng `enum` hoặc subtype `sealed` mới lúc runtime mà code gọi chưa biên dịch lại.
+  2. **Record accessor ném lỗi** trong lúc deconstruction `case MyRecord(var a, var b)` → exception gốc được bọc vào `MatchException` (lấy qua `getCause()`).
+
 ---
 
 ## 6. Pattern matching & JEP 532 (preview)
@@ -304,6 +339,14 @@ String kind = switch (value) {
 Object boxed = 42;
 boolean isInt = boxed instanceof int;   // true: Integer -> int
 boolean isByte = boxed instanceof byte; // false: static Object chỉ kiểm tra wrapper Byte
+
+// Preview JEP 532: switch trực tiếp trên boolean, long, float, double
+long id = 100L;
+String tier = switch (id) {
+    case 0L -> "root";
+    case long n when n > 0 && n < 1000 -> "standard";
+    case long _ -> "large";
+};
 ```
 
 **Ý nghĩa thực dụng:** xử lý boxed/`Object`/`Number` thống nhất hơn; tránh ép kiểu tay rồi kiểm tra range. Khi viết thư viện production LTS, cân nhắc chờ standardized hoặc cô lập code preview sau flag.
@@ -447,6 +490,12 @@ assert invariant() : "invariant broken";
 
 Bật bằng `-ea`. Không thay validation API công khai.
 
+### 8.6 Definite Assignment & Unreachable Statements (JLS §14.22)
+
+- **Unreachable statement là lỗi biên dịch:** câu lệnh sau `return`, `throw`, `break`, `continue`, hoặc `while (false) { ... }` bị `javac` từ chối ngay.
+- **Ngoại lệ duy nhất — `if (CONSTANT_FALSE)`:** JLS cố ý cho phép `if (DEBUG) { ... }` với `static final boolean DEBUG = false;` để hỗ trợ biên dịch có điều kiện nhẹ (khác `while (false)` bị lỗi biên dịch!).
+- Biến `final` gán trong vòng lặp chỉ hợp lệ nếu compiler chứng minh vòng lặp không bao giờ chạy tới lệnh gán lần thứ hai (definite unassignment).
+
 ---
 
 ## 9. Exception & resource: `try` / try-with-resources
@@ -487,7 +536,19 @@ try (var in = Files.newBufferedReader(path);
 
 `var` trong try-with-resources được hỗ trợ. Unnamed: `try (var _ = open()) { ... }`.
 
-Chi tiết hierarchy / best practices: xem `exceptions.md`.
+Chi tiết hierarchy / best practices: xem [exceptions.md](exceptions.md).
+
+### 9.4 Thứ tự thực thi chính xác của Try-with-resources
+
+```text
+1. Khởi tạo resources theo thứ tự khai báo (r1 → r2). Nếu r2 ném lỗi, r1 vẫn được đóng ngay.
+2. Thực thi thân khối `try`.
+3. Tự động gọi `close()` theo thứ tự NGƯỢC (r2 → r1); bỏ qua resource có giá trị `null`.
+   - Nếu thân `try` đã ném lỗi `e1` và `close()` ném `e2` → `e1.addSuppressed(e2)`.
+   - Nếu thân `try` bình thường, `r2.close()` ném `e2` và `r1.close()` ném `e3` → `e2` là lỗi chính, `e2.addSuppressed(e3)`.
+4. Sau khi đóng hết resources, mới chạy các nhánh `catch` (nếu có) — vì vậy `catch` nhìn thấy cả lỗi từ `close()`.
+5. Cuối cùng mới chạy khối `finally` (nếu có).
+```
 
 ---
 

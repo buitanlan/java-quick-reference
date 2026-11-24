@@ -25,8 +25,11 @@ Tài liệu này là tham khảo thực hành: signature hợp lệ, launcher, m
     - [5.2 Instance main \& simplified launch](#52-instance-main--simplified-launch)
     - [5.3 Các dạng main được launcher chấp nhận](#53-các-dạng-main-được-launcher-chấp-nhận)
     - [5.4 `java.lang.IO`](#54-javalangio)
+    - [5.5 Quy tắc chọn candidate `main` đầy đủ (JLS 27 §12.1.4)](#55-quy-tắc-chọn-candidate-main-đầy-đủ-jls-27-1214)
   - [6. `java` launcher](#6-java-launcher)
+    - [6.1 Multi-File Source-Code Launch (JEP 458), `@argfile` \& Shebang](#61-multi-file-source-code-launch-jep-458-argfile--shebang)
   - [7. Exit codes \& `System.exit`](#7-exit-codes--systemexit)
+    - [7.1 Vòng đời khởi động \& tắt JVM](#71-vòng-đời-khởi-động--tắt-jvm)
   - [8. Compact source → named class (migration)](#8-compact-source--named-class-migration)
   - [9. Pitfalls (Bẫy)](#9-pitfalls-bẫy)
   - [10. Best practices](#10-best-practices)
@@ -216,9 +219,20 @@ void main() {
 }
 ```
 
-- `IO.println` / `IO.print` / `IO.readln` — không cần `System.out` cho script.
+- `IO.println` / `IO.print` / `IO.readln` (có cả `IO.readln()` không prompt; trả `null` khi gặp EOF) — không cần `System.out` cho script.
 - Production app vẫn dùng logging / `System.out` có chủ đích; `IO` không thay `java.nio` hay HTTP.
 - Compact source import ngầm `import module java.base;`. Khi chuyển sang named class, thêm imports cần thiết hoặc module import này. `IO` thuộc `java.lang` nên vẫn được import ngầm trong mọi source; các static method của `IO` không được import ngầm.
+
+### 5.5 Quy tắc chọn candidate `main` đầy đủ (JLS 27 §12.1.4)
+
+| Trường hợp | Hợp lệ để launch? | Ghi chú |
+|---|---|---|
+| `static void main(String[])` (không `private`) trong `abstract class` | **Có** | Không cần tạo instance |
+| Instance `void main()` / `void main(String[])` trong `abstract class` | **Không** | Không thể khởi tạo đối tượng |
+| Instance `void main()` có constructor không tham số là `private` | **Không** | Launcher đòi hỏi no-arg constructor không `private` |
+| Cả `main(String[])` và `main()` cùng tồn tại (hoặc kế thừa) | Chọn `main(String[])` | Ưu tiên tuyệt đối dạng nhận `String[]`; không fallback nếu lỗi |
+| `main` trả về `int` / khác `void` | **Không** | Luôn phải trả về `void` |
+| `main` khai báo `private` | **Không** | Bắt buộc `public`, `protected`, hoặc package-private |
 
 ---
 
@@ -233,7 +247,7 @@ java -cp out com.example.App arg1 arg2
 # Module path
 java -p mods -m com.example/com.example.App
 
-# Chạy trực tiếp file nguồn (single-file / compact)
+# Chạy trực tiếp file nguồn (compact / single-file; từ Java 22 JEP 458 hỗ trợ cả multi-file source-code)
 java App.java
 java Hello.java
 
@@ -260,6 +274,19 @@ Main-Class: com.example.App
 jar --create --file app.jar --main-class com.example.App -C out .
 java -jar app.jar
 ```
+
+### 6.1 Multi-File Source-Code Launch (JEP 458), `@argfile` & Shebang
+
+- **Multi-File Source-Code Programs (Java 22+, JEP 458):** khi chạy `java src/Main.java`, launcher tự tìm và biên dịch trên RAM các file `.java` khác được tham chiếu theo đúng cây `package` tính từ thư mục gốc nguồn; vẫn truyền thêm thư viện ngoài qua `-cp "libs/*"` được.
+- **Tách JVM options vs App args:** mọi flag cho JVM (`-Xmx`, `-Dkey=val`, `--enable-preview`) phải đứng **trước** tên class / file nguồn / `-jar`; mọi token đứng **sau** đều chuyển nguyên vẹn vào `String[] args`.
+- **`@argfile` (Java 9+):** tránh giới hạn độ dài dòng lệnh (đặc biệt trên Windows khi classpath rất dài):
+
+```text
+# options.txt chứa -Xmx512m -cp ...
+java @options.txt com.example.App arg1
+```
+
+- **Shebang trên Linux/macOS:** dòng đầu `#!/usr/bin/env -S java --source 27` (cấp quyền `chmod +x script`) cho phép chạy file Java trực tiếp như shell script (không cần đuôi `.java`).
 
 ---
 
@@ -288,7 +315,7 @@ public class ExitDemo {
 - **`System.exit(status)`**: khởi động shutdown sequence — chạy shutdown hooks, rồi kết thúc JVM.
 - **`Runtime.getRuntime().halt(status)`**: thoát **ngay**, bỏ qua hooks — chỉ dùng khi hooks treo/deadlock.
 - Uncaught exception ở `main` với launcher/handler mặc định thường cho mã thoát 1. Exception ở worker chỉ kết thúc thread đó; không tự bảo đảm cả process có mã thoát khác 0. `main` return cũng chưa kết thúc JVM nếu còn non-daemon threads.
-- Shutdown hooks:
+- Shutdown hooks (**bắt buộc là platform thread** — truyền virtual thread vào `addShutdownHook` ném `IllegalArgumentException`):
 
 ```java
 Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(() -> {
@@ -297,6 +324,21 @@ Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(() -> {
 ```
 
 Quy ước mã thoát (không bắt buộc nhưng phổ biến): `0` thành công, `1` lỗi chung, `2` lỗi cú pháp/CLI.
+
+### 7.1 Vòng đời khởi động & tắt JVM
+
+```text
+1. Launcher parse JVM flags → nạp libjvm → khởi tạo VM & main ClassLoader.
+2. Load & khởi tạo (<clinit> — static fields + static { }) lớp chứa main TRƯỚC KHI gọi main().
+   (Lỗi trong static initializer → ExceptionInInitializerError, main không chạy.)
+3. Chạy main() trên thread tên "main" (non-daemon).
+4. Khi main() kết thúc bình thường: JVM chỉ tắt khi MỌI non-daemon thread đã kết thúc
+   (virtual threads luôn là daemon nên không giữ JVM sống).
+5. Khi tắt bình thường / nhận SIGTERM / gọi System.exit(): chạy toàn bộ Shutdown Hooks
+   ĐỒNG THỜI theo thứ tự KHÔNG XÁC ĐỊNH → kết thúc tiến trình.
+```
+
+- `SIGKILL` (`kill -9`) hoặc `Runtime.getRuntime().halt(code)` dừng tiến trình tức thì, **bỏ qua** toàn bộ shutdown hooks và `finally`. Tránh gọi `System.exit()` trong thư viện hoặc test (làm chết luôn tiến trình test runner / app server).
 
 ---
 

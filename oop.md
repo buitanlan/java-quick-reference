@@ -7,7 +7,7 @@ sealed types, interface (default/diamond), composition, records, enums, nested c
 và các bẫy thường gặp. Mọi thứ (trừ primitive) gắn với object trên heap; mọi class kế thừa (trực tiếp/gián tiếp)
 từ `java.lang.Object`.
 
-Cross-link: [typesystem.md](typesystem.md) · [methods.md](methods.md) · [keywords.md](keywords.md) ·
+Cross-link: [typesystem.md](typesystem.md) · [functional.md](functional.md) (DOP, `sealed`+`record` ADT) · [memory-ffm.md](memory-ffm.md) (object layout, `Cleaner`) · [methods.md](methods.md) · [keywords.md](keywords.md) ·
 [lambdas-functional.md](lambdas-functional.md) · [collections-generics.md](collections-generics.md) ·
 [threading.md](threading.md)
 
@@ -109,7 +109,7 @@ public class Counter {
 | *(package-private / default)* | ✓ | ✓ | ✗* | ✗ |
 | `private` | ✓ | ✗ | ✗ | ✗ |
 
-\*Subclass **ngoài package** không thấy package-private.
+\*Subclass **ngoài package** không thấy package-private; với `protected`, subclass ngoài package chỉ truy cập thành viên instance qua tham chiếu có kiểu của chính subclass đó (hoặc subtype của nó), không qua tham chiếu superclass tùy ý.
 
 - Modules (`module-info.java`) thêm lớp encapsulation: `exports` / `opens`.
 - Quy tắc: **thu hẹp phạm vi** nhất có thể (*least privilege*).
@@ -377,7 +377,7 @@ double eval(Expr e) {
 }
 ```
 
-- `sealed` + `permits`: whitelist subtype.
+- `sealed` + `permits`: whitelist subtype. Nếu mọi direct subtype được khai báo trong **cùng compilation unit** (cùng file `.java`), có thể bỏ mệnh đề `permits` (compiler tự suy ra).
 - Direct subclass phải là `final`, `sealed` hoặc `non-sealed`; subinterface dùng `sealed`/`non-sealed`. Record ngầm `final`, enum có quy tắc ngầm riêng.
 - Trong named module, permitted direct subtypes phải cùng module (có thể khác package); trong unnamed module, phải cùng package.
 - Bức tranh kiểu / pattern matching: [typesystem.md](typesystem.md).
@@ -545,7 +545,8 @@ public record Point(int x, int y) {}
 - Record = **shallowly immutable data carrier**: header components → private final fields + canonical ctor + accessors `x()`/`y()` + `equals`/`hashCode`/`toString`.
 - Ngầm `final`, kế thừa `java.lang.Record` — **không** `extends` class khác (kể cả abstract).
 - Có thể `implements` interface; thêm static members, compact/custom ctor, methods.
-- Components shallow immutable: reference field vẫn có thể trỏ object mutable — đừng lộ mutable state nếu cần value semantics thật.
+- Components shallow immutable: reference field vẫn có thể trỏ object mutable — dùng **defensive copy** trong compact constructor (vd. `items = List.copyOf(items);`) nếu cần bất biến thực sự.
+- **Bẫy component là mảng (`int[]`, `String[]`)**: `equals`/`hashCode` tự sinh của record dùng `==` và `Object.hashCode` cho mảng (so identity, **không** dùng `Arrays.equals`/`Arrays.hashCode`), và accessor trả thẳng mảng mutable — cần override `equals`/`hashCode`/accessor hoặc dùng `List` thay mảng.
 
 ### 6.2 Compact constructors
 
@@ -625,10 +626,10 @@ public enum Level {
 }
 ```
 
-- Enum = class đặc biệt: cố định instances (`Level.INFO`), superclass `Enum<E>`.
+- Enum = class đặc biệt: cố định instances (`Level.INFO`), superclass `Enum<E>`. Constructor ngầm `private` (không được `public`/`protected`).
 - Có thể có fields, methods, implement interfaces.
 - So sánh identity thường dùng `==` (an toàn với enum constants).
-- `name()` / `ordinal()` / `valueOf` / `values()` — tránh dựa `ordinal()` cho persistence (đổi thứ tự = vỡ data).
+- `name()` / `ordinal()` / `valueOf` / `values()` — tránh dựa `ordinal()` cho persistence (đổi thứ tự = vỡ data). `values()` **cấp phát mảng mới mỗi lần gọi** → cache thành `static final List` nếu dùng trong hot loop.
 
 ### 7.2 Constant-specific class bodies & abstract methods
 
@@ -718,6 +719,8 @@ public class Outer {
 | inner | Có | Cần state outer |
 | local | Có enclosing instance nếu khai báo trong instance context | Scope hẹp trong method; trong static context không có outer instance |
 | anonymous | Tùy ngữ cảnh/capture | One-shot (ưu tiên lambda nếu SAM) |
+
+> Từ **Java 16+**, inner class, local class và anonymous class **được phép khai báo thành viên `static`** (field, method, nested `record`/`enum`), gỡ bỏ hạn chế lịch sử trước Java 16.
 
 ### 8.2 Bẫy: inner giữ outer — memory leak
 
@@ -882,7 +885,7 @@ Objects.toString(x, "default");
 | `toString()` | Representation debug/log |
 | `getClass()` | Runtime class (final) |
 | `clone()` | Shallow copy — **hiếm dùng**; prefer copy ctor / factory |
-| `finalize()` | **Deprecated for removal** — đừng dùng; dùng `Cleaner` / try-with-resources |
+| `finalize()` | **Deprecated for removal** (Java 18, JEP 421) — đừng dùng; dùng `Cleaner` (Java 9+) / try-with-resources. Lưu ý: action của `Cleaner` **không được capture `this`** (tách `static` state class), nếu không object sẽ không bao giờ được GC |
 | `wait` / `notify` / `notifyAll` | Monitor low-level — ưu tiên `java.util.concurrent` — [threading.md](threading.md) |
 
 ```java

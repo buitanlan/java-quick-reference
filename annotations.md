@@ -1,18 +1,15 @@
-# Annotation
+# Annotation & Reflection
 
-Annotation là cơ chế **metadata** của Java — gắn thông tin vào khai báo (hoặc từ Java 8, cả type use) để compiler,
-tooling, framework và runtime phản ứng. Đây là analogue gần nhất với “preprocessor/metadata attributes” của C#
-(`[Obsolete]`, `[Serializable]`, …), nhưng Java annotation **không** điều khiển `#if` biên dịch có điều kiện;
-chúng mang dữ liệu có cấu trúc, xử lý bởi compiler plugins (APT) hoặc reflection. Tài liệu nhắm **Java 27**.
+Tài liệu tham khảo **Annotation** (metadata, meta-annotations, APT) và **Reflection / Metaprogramming** (`java.lang.reflect`, `MethodHandles`, Dynamic `Proxy`, **Class-File API — JEP 484**, và bảo mật JPMS / JEP 500 / `ObjectInputFilter`) trên **Java 27**. Đây là analogue tương ứng với `Attributes & Reflection` bên C# (`[Obsolete]`, `System.Reflection`, Source Generators), nhưng Java annotation **không** điều khiển `#if` biên dịch có điều kiện; chúng mang dữ liệu có cấu trúc cho APT, reflection hoặc bytecode tooling.
 
 > Cross-link: [methods.md](methods.md) (`@Override`, `@SafeVarargs`) · [oop.md](oop.md) (records / components) ·
-> [lambdas-functional.md](lambdas-functional.md) (`@FunctionalInterface`) · [keywords.md](keywords.md)
+> [lambdas-functional.md](lambdas-functional.md) (`@FunctionalInterface`) · [typesystem.md](typesystem.md) (JEP 500, TypeToken) · [packages-modules.md](packages-modules.md) (`opens`, `ServiceLoader`)
 
 ---
 
 ## Mục lục
 
-- [Annotation](#annotation)
+- [Annotation & Reflection](#annotation--reflection)
   - [Mục lục](#mục-lục)
   - [1. Tổng quan \& cú pháp](#1-tổng-quan--cú-pháp)
   - [2. Khai báo annotation type](#2-khai-báo-annotation-type)
@@ -32,8 +29,16 @@ chúng mang dữ liệu có cấu trúc, xử lý bởi compiler plugins (APT) h
   - [6. Đọc annotation lúc runtime](#6-đọc-annotation-lúc-runtime)
   - [7. Annotation processor (APT) — overview](#7-annotation-processor-apt--overview)
   - [8. Custom annotation — mẫu thực tế](#8-custom-annotation--mẫu-thực-tế)
-  - [9. Pitfalls (Bẫy)](#9-pitfalls-bẫy)
-  - [10. Best practices](#10-best-practices)
+  - [9. Reflection API (`java.lang.reflect`)](#9-reflection-api-javalangreflect)
+    - [9.1 `Class`, `Field`, `Method`, `Constructor` & `RecordComponent`](#91-class-field-method-constructor--recordcomponent)
+    - [9.2 Deep reflection, JPMS `opens` & JEP 500 (`final` mutation)](#92-deep-reflection-jpms-opens--jep-500-final-mutation)
+    - [9.3 Generic metadata (`Type`, `ParameterizedType`)](#93-generic-metadata-type-parameterizedtype)
+  - [10. `MethodHandles` & Dynamic `Proxy`](#10-methodhandles--dynamic-proxy)
+    - [10.1 `MethodHandles.Lookup` & `MethodHandle`](#101-methodhandleslookup--methodhandle)
+    - [10.2 Dynamic `Proxy` (`java.lang.reflect.Proxy`)](#102-dynamic-proxy-javalangreflectproxy)
+  - [11. Class-File API (`java.lang.classfile`, JEP 484) & Deserialization Safety](#11-class-file-api-javalangclassfile-jep-484--deserialization-safety)
+  - [12. Pitfalls (Bẫy)](#12-pitfalls-bẫy)
+  - [13. Best practices](#13-best-practices)
 
 ---
 
@@ -70,8 +75,8 @@ public @interface Author {
 
 - Dùng `@interface` (không phải `interface` thường).
 - “Method” không tham số, không body — là **elements**.
-- Kiểu element cho phép: primitive, `String`, `Class`, enum, annotation, và mảng của các kiểu đó.
-- Không dùng `Integer` wrapper, generic, hay arbitrary class làm kiểu element.
+- Kiểu element cho phép: primitive, `String`, `Class` (kể cả parameterized như `Class<?>` / `Class<? extends Foo>`), enum, annotation, và mảng 1 chiều của các kiểu đó.
+- Không dùng `Integer` wrapper, type variable (`T`), các parameterized type khác (`List<String>`), hay arbitrary class làm kiểu element.
 - Giá trị primitive/`String` phải là constant expression; `Class` dùng class literal, enum dùng enum constant, annotation dùng annotation lồng, mảng dùng initializer một chiều. Không dùng `null`, `new` hay lời gọi method; không phải mọi giá trị annotation đều là constant expression theo JLS.
 
 ```java
@@ -130,7 +135,7 @@ public @interface Secured {
 `ElementType` phổ biến: `TYPE`, `FIELD`, `METHOD`, `PARAMETER`, `CONSTRUCTOR`, `LOCAL_VARIABLE`,
 `ANNOTATION_TYPE`, `PACKAGE`, `TYPE_PARAMETER`, `TYPE_USE`, `MODULE`, `RECORD_COMPONENT`.
 
-- Không khai báo `@Target` → áp dụng gần như mọi vị trí declaration cổ điển (theo JLS — nên **luôn** ghi rõ).
+- Không khai báo `@Target` → theo JLS 27 §9.6.4.1, áp dụng cho **mọi declaration context** (kể cả `TYPE_PARAMETER`, `MODULE`, `RECORD_COMPONENT`), và **không** áp dụng cho type context (`TYPE_USE`). Vẫn nên **luôn** ghi rõ `@Target`.
 - `TYPE_USE` cho phép gắn trên kiểu trong vị trí dùng kiểu (`List<@NonNull String>`).
 
 ### 3.3 `@Documented`
@@ -183,7 +188,7 @@ public @interface Tags {
 class Demo {}
 ```
 
-Compiler gói các `@Tag` vào container `@Tags`. Đọc runtime: `getAnnotationsByType(Tag.class)`.
+Compiler gói nhiều `@Tag` vào container `@Tags`. Khi đọc runtime, **luôn dùng `getAnnotationsByType(Tag.class)`**: nếu chỉ gắn **1 lần**, `getAnnotation(Tag.class)` thấy trực tiếp (và `getAnnotation(Tags.class)` là `null`), còn nếu gắn **≥2 lần**, `getAnnotation(Tag.class)` trả `null` (chỉ thấy container `@Tags`).
 
 ---
 
@@ -267,10 +272,13 @@ public @interface NonNull {}
 List<@NonNull String> names;
 @NonNull String title;
 Consumer<@NonNull String> c;
+String @NonNull [] nonNullArray;          // gắn lên mảng, khác `@NonNull String[]` (gắn lên phần tử)
+Outer.@NonNull Inner nested;              // nested type: gắn trước tên inner, không viết `@NonNull Outer.Inner`
 ```
 
 - Checker Framework / JSpecify dùng type annotations để phân tích nullness, purity, …
 - Declaration annotation gắn trên phần tử; type annotation gắn trên vị trí kiểu — có thể cùng xuất hiện.
+- **Record component propagation (JLS §8.10.1):** annotation gắn trên component của `record` (`record User(@NotBlank String id)`) sẽ tự lan truyền sang backing `private final` field, tham số canonical constructor, accessor method và/hoặc `RecordComponent` tùy theo `@Target` (`FIELD`, `PARAMETER`, `METHOD`, `RECORD_COMPONENT`, `TYPE_USE`). Đây là cơ chế nền tảng để Bean Validation, Jackson và JPA hoạt động với `record`.
 
 ---
 
@@ -306,8 +314,7 @@ Annotation của type được đọc bằng `Class` reflection không tự đò
 
 ## 7. Annotation processor (APT) — overview
 
-`javax.annotation.processing` / `jakarta` không — package chuẩn: `javax.annotation.processing.AbstractProcessor`
-(JDK: `javax.annotation.processing`).
+APT thuộc JDK chuẩn trong package `javax.annotation.processing` (`AbstractProcessor`, `RoundEnvironment`, `Filer`, `Messager`) — không chuyển sang `jakarta.*` như các spec Jakarta EE.
 
 Luồng:
 
@@ -379,24 +386,151 @@ Quét classpath/module path + đọc annotation = nền tảng của micro-frame
 
 ---
 
-## 9. Pitfalls (Bẫy)
+## 9. Reflection API (`java.lang.reflect`)
+
+### 9.1 `Class`, `Field`, `Method`, `Constructor` & `RecordComponent`
+
+| Nhóm API | Phạm vi trả về |
+|---|---|
+| `getFields()` / `getMethods()` / `getConstructors()` | Chỉ thành viên **`public`**, bao gồm cả kế thừa từ superclass/interface (trừ constructor) |
+| `getDeclaredFields()` / `getDeclaredMethods()` / `getDeclaredConstructors()` | **Mọi access modifier** (`private`→`public`) khai báo trực tiếp trên chính class đó, **không** gồm thành viên kế thừa |
+| `getRecordComponents()` (Java 16+) | Danh sách thành viên của `record` theo đúng thứ tự header (`getName()`, `getType()`, `getAccessor()`) |
+
+```java
+Class<?> cls = OrderService.class;
+Constructor<?> ctor = cls.getDeclaredConstructor();
+Object instance = ctor.newInstance();
+
+Method m = cls.getMethod("noop");
+m.invoke(instance); // lỗi trong target method được bọc trong InvocationTargetException!
+```
+
+- **Lưu ý tên tham số:** `Parameter.getName()` trả về `arg0`, `arg1` trừ khi biên dịch với `javac -parameters` (rất quan trọng với Spring / Jackson / JPA).
+- **Bridge & synthetic methods:** `getDeclaredMethods()` có thể trả về method do `javac` sinh tự động — lọc bỏ bằng `!m.isSynthetic() && !m.isBridge()`.
+
+### 9.2 Deep reflection, JPMS `opens` & JEP 500 (`final` mutation)
+
+- Gọi `setAccessible(true)` lên thành viên không `public` trong một named module khác sẽ ném **`InaccessibleObjectException`** trừ khi module đó `opens <pkg>` (hoặc chạy với `--add-opens`).
+- **JEP 500 (JDK 26+ — Prepare to Make Final Mean Final):** dùng `Field.setAccessible(true)` + `Field.set(...)` để ghi đè instance field `final` phát **cảnh báo** mặc định (`--illegal-final-field-mutation=warn`), và bản tương lai sẽ cấm trừ khi bật `--enable-final-field-mutation`. `static final` và field của `record` vốn không thể ghi đè qua `Field.set` — xem [typesystem.md](typesystem.md#41-jep-500--prepare-to-make-final-mean-final-từ-26).
+
+### 9.3 Generic metadata (`Type`, `ParameterizedType`)
+
+Dù runtime bị type erasure, chữ ký generic của **field, method parameter/return và superclass** vẫn lưu trong class-file `Signature` attribute:
+
+```java
+Field f = OrderService.class.getDeclaredField("items"); // List<String> items;
+if (f.getGenericType() instanceof ParameterizedType pt) {
+    Type elemType = pt.getActualTypeArguments()[0];     // class java.lang.String
+}
+```
+
+Với biến cục bộ / tham số truyền runtime → dùng pattern **Super Type Token (`TypeToken<T>`)** — xem [typesystem.md](typesystem.md#14-reflection-class-typetoken--methodhandles).
+
+---
+
+## 10. `MethodHandles` & Dynamic `Proxy`
+
+### 10.1 `MethodHandles.Lookup` & `MethodHandle`
+
+`java.lang.invoke.MethodHandle` (Java 7+, nền tảng của lambda & `StringConcatFactory`) kiểm tra access control **một lần lúc lookup** (khác `Method.invoke` kiểm tra lặp lại hoặc cần `setAccessible`), và dễ được JIT inline nếu lưu trong `static final`:
+
+```java
+MethodHandles.Lookup lookup = MethodHandles.lookup();
+MethodHandle mh = lookup.findVirtual(
+        String.class, "toUpperCase", MethodType.methodType(String.class, Locale.class));
+
+// invokeExact: chữ ký compile-time (tham số & kiểu trả về) phải khớp tuyệt đối
+String out = (String) mh.invokeExact("java", Locale.ROOT); // "JAVA"
+```
+
+- Truy cập private member của class khác trong cùng module/open package: `MethodHandles.privateLookupIn(targetClass, lookup)`.
+- `VarHandle` (Java 9+) là đối ứng của `MethodHandle` cho đọc/ghi field/array/off-heap có memory ordering — xem [memory-ffm.md](memory-ffm.md#8-varhandle-cho-memory-access-có-thứ-tự).
+
+### 10.2 Dynamic `Proxy` (`java.lang.reflect.Proxy`)
+
+Tạo implementation runtime cho **một hoặc nhiều `interface`** (nền tảng của AOP, RPC client, mocking):
+
+```java
+interface Greeter {
+    String greet(String name);
+    default String hi() { return greet("world"); }
+}
+
+Greeter target = name -> "Hello, " + name;
+Greeter proxy = (Greeter) Proxy.newProxyInstance(
+        Greeter.class.getClassLoader(),
+        new Class<?>[] { Greeter.class },
+        (p, method, args) -> {
+            if (method.isDefault()) {
+                // Java 16+: gọi thẳng default method của interface trên proxy
+                return InvocationHandler.invokeDefault(p, method, args);
+            }
+            System.out.println("Calling " + method.getName());
+            return method.invoke(target, args);
+        });
+```
+
+- **Giới hạn:** `java.lang.reflect.Proxy` chỉ tạo proxy cho **`interface`** (không proxy được concrete class — muốn proxy class phải dùng bytecode generation như Byte Buddy hoặc Class-File API).
+- **Bẫy unwrap lỗi:** `method.invoke(...)` bọc ngoại lệ gốc trong `InvocationTargetException` — trong `InvocationHandler`, nhớ bắt và ném `e.getCause()` để caller nhận đúng exception khai báo thay vì `UndeclaredThrowableException`.
+
+---
+
+## 11. Class-File API (`java.lang.classfile`, JEP 484) & Deserialization Safety
+
+### 11.1 Class-File API (Final từ Java 24)
+
+[JEP 484](https://openjdk.org/jeps/484) cung cấp API chuẩn trong `java.lang.classfile` để **parse, build và transform `.class` bytecode** theo đúng chuẩn JVMS từng bản JDK (thay nhu cầu nhúng bản ASM cũ cho tooling/agent/framework):
+
+```java
+import java.lang.classfile.*;
+
+byte[] bytes = Files.readAllBytes(Path.of("target/classes/com/example/App.class"));
+ClassModel model = ClassFile.of().parse(bytes); // immutable + lazy
+
+for (MethodModel m : model.methods()) {
+    System.out.println(m.methodName().stringValue() + m.methodTypeSymbol().descriptorString());
+}
+```
+
+### 11.2 Bảo mật Deserialization (`ObjectInputFilter`)
+
+Java built-in serialization (`ObjectInputStream` / `Serializable`) đi qua cơ chế khởi tạo đối tượng gần giống reflection và là nguồn gốc của nhiều lỗ hổng RCE (gadget chains). Ưu tiên JSON/Protobuf + `record`; nếu buộc phải dùng `ObjectInputStream`, luôn áp dụng allow-list **`ObjectInputFilter`** (Java 9+, JEP 290; global factory từ Java 17, JEP 415):
+
+```java
+ObjectInputFilter filter = ObjectInputFilter.Config.createFilter(
+        "maxdepth=5;maxrefs=100;maxbytes=1048576;com.example.dto.*;!*");
+
+try (var ois = new ObjectInputStream(in)) {
+    ois.setObjectInputFilter(filter);
+    Object obj = ois.readObject();
+}
+```
+
+---
+
+## 12. Pitfalls (Bẫy)
 
 1. **Sai `@Retention`** — mặc định là `CLASS`; reflection không đọc được nếu cần `RUNTIME` mà quên khai báo. Chọn `SOURCE` cho metadata chỉ cần lúc biên dịch; `CLASS` và `RUNTIME` đều lưu metadata trong class file.
 2. **Quên `@Override`** — typo / overload nhầm thành method mới; compiler không báo. Luôn gắn khi cố ý override/implement — [methods.md](methods.md).
 3. **`@Repeatable` thiếu container** — phải có annotation container (`@Tags` chứa `Tag[] value()`) cùng retention/target phù hợp; đọc runtime dùng `getAnnotationsByType`, không chỉ `getAnnotation` (chỉ thấy container khi đã gộp).
 4. **`@Inherited` chỉ trên class** — không “kế thừa” xuống method/field; interface cũng không theo nghĩa meta này.
 5. **Nhầm declaration vs type-use** — thiếu `ElementType.TYPE_USE` thì không gắn được trên `List<@NonNull String>`.
+6. **Quên unwrap `InvocationTargetException`** khi gọi `Method.invoke` / `Constructor.newInstance` hoặc trong `InvocationHandler` của `Proxy`.
+7. **Deep reflection vào JDK/module không `opens` hoặc ghi `final` field** — `InaccessibleObjectException` và cảnh báo JEP 500 trên JDK 26+.
+8. **Quên lọc synthetic/bridge method** và quên cờ `-parameters` khi đọc tên tham số bằng reflection.
 
 ---
 
-## 10. Best practices
+## 13. Best practices
 
 - Luôn chỉ định `@Retention` và `@Target` tường minh.
 - Đặt tên annotation theo vai trò (`@Inject`, `@Route`), không theo cơ chế (`@MyAnnotation1`).
 - Element `value()` khi chỉ có một thuộc tính chính — DX tốt hơn.
-- Prefer compile-time processors cho codegen; runtime reflection cho plugin động.
+- Prefer **compile-time processors (APT)** cho codegen và **sealed/pattern matching/functional interface** thay vì runtime reflection trên hot path.
+- Khi cần invoke động hiệu năng cao: cache `MethodHandle` trong `static final` (hoặc `LazyConstant` preview) thay vì tra cứu reflection lặp lại.
+- Tooling xử lý bytecode mới → ưu tiên **Class-File API (`java.lang.classfile`, JEP 484)** thay ASM shaded.
 - Đừng dùng annotation thay config phức tạp (XML/YAML/code) khi cần biểu thức/logic.
-- Java 25: kết hợp records + annotation trên record component (`ElementType.RECORD_COMPONENT`) cho binding.
+- Java 16+: kết hợp records + annotation trên record component (`ElementType.RECORD_COMPONENT`) cho binding và validation.
 
 ```java
 public record User(
@@ -410,4 +544,4 @@ public record User(
 
 ---
 
-*Tham chiếu nhanh — Java 27. Meta-annotations & APT ổn định từ lâu; `RECORD_COMPONENT` từ 16.*
+*Tham chiếu nhanh — Java 27. Meta-annotations & APT ổn định từ lâu; `RECORD_COMPONENT` & `InvocationHandler.invokeDefault` từ 16; Class-File API final từ 24 (JEP 484); JEP 500 từ 26.*

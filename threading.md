@@ -4,7 +4,7 @@ Platform threads, virtual threads, synchronization, JMM, Scoped Values (JEP 506)
 
 Virtual threads final từ **Java 21**; Scoped Values **final** từ Java 25 ([JEP 506](https://openjdk.org/jeps/506)). Structured Concurrency vẫn **preview** ([JEP 533](https://openjdk.org/jeps/533) — Seventh Preview trên 27) — cần `--enable-preview`.
 
-Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, reactive) · [keywords.md](keywords.md) (`synchronized`, `volatile`, `transient`…) · [exceptions.md](exceptions.md) (`InterruptedException`, unwrap async).
+Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, `HttpClient`, reactive) · [memory-ffm.md](memory-ffm.md) (JFR, `VarHandle`, FFM pinning, `jcmd`) · [keywords.md](keywords.md) (`synchronized`, `volatile`, `transient`…) · [exceptions.md](exceptions.md) (`InterruptedException`, unwrap async).
 
 ---
 
@@ -12,6 +12,7 @@ Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, reactive) · [key
 
 - [1. Tổng quan](#1-tổng-quan)
 - [2. Platform thread vs Virtual thread](#2-platform-thread-vs-virtual-thread)
+  - [2.1 Cơ chế nội bộ Virtual Threads (Continuation & Carrier Pool)](#21-cơ-chế-nội-bộ-virtual-threads-continuation--carrier-pool)
 - [3. Pinning trên virtual threads](#3-pinning-trên-virtual-threads)
 - [4. Tạo \& chạy thread](#4-tạo--chạy-thread)
   - [4.1 `Thread.ofVirtual()` / `ofPlatform()`](#41-threadofvirtual--ofplatform)
@@ -22,9 +23,11 @@ Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, reactive) · [key
   - [5.1 `synchronized`](#51-synchronized)
   - [5.2 `volatile`](#52-volatile)
   - [5.3 `Lock` \& concurrent utilities](#53-lock--concurrent-utilities)
+  - [5.4 Patterns nâng cao: `StampedLock` Optimistic Read, Lock Downgrading \& ABA](#54-patterns-nâng-cao-stampedlock-optimistic-read-lock-downgrading--aba)
 - [6. JEP 506 — Scoped Values (final Java 25)](#6-jep-506--scoped-values-final-java-25)
   - [6.1 ThreadLocal vs ScopedValue](#61-threadlocal-vs-scopedvalue)
 - [7. Race conditions \& JMM happens-before](#7-race-conditions--jmm-happens-before)
+  - [7.1 Safe Publication, DCL, False Sharing \& Thread States](#71-safe-publication-dcl-false-sharing--thread-states)
 - [8. Interruption \& joining](#8-interruption--joining)
 - [9. Structured Concurrency (`StructuredTaskScope`) — Java 27 preview](#9-structured-concurrency-structuredtaskscope--java-27-preview)
 - [10. Pitfalls](#10-pitfalls)
@@ -40,7 +43,7 @@ Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, reactive) · [key
 - **Đồng bộ hóa**: bảo vệ shared mutable state (`synchronized`, locks, concurrent collections, atomics).
 - **ExecutorService**: pool / lifecycle cho tasks — với virtual threads thường dùng **unbounded virtual executor** (`newVirtualThreadPerTaskExecutor`).
 - **Scoped Values** (25 final): context bất biến theo lexical scope — thay nhiều use-case `ThreadLocal`.
-- **Structured Concurrency** (25 preview): fan-out/fan-in có lifetime rõ — chi tiết mục 9 và [async.md](async.md).
+- **Structured Concurrency** (preview — JEP 533 trên Java 27): fan-out/fan-in có lifetime rõ — chi tiết mục 9 và [async.md](async.md).
 
 > Xu hướng Java 27: viết code **blocking đơn giản** trên virtual threads thay vì callback hell / reactive bắt buộc cho mọi I/O.
 
@@ -63,9 +66,18 @@ Thread.currentThread().isVirtual(); // true/false
 
 **Quy tắc chọn nhanh:**
 
-- Request/handler I/O, fan-out DB/HTTP → virtual thread.
+- Request/handler I/O, fan-out DB/HTTP → virtual thread. Carrier pool mặc định là FIFO `ForkJoinPool` với parallelism ≈ số core (chỉnh được qua `jdk.virtualThreadScheduler.parallelism`, `maxPoolSize`, `minRunnable` nếu đo thấy cần). Nếu không muốn VT kế thừa `InheritableThreadLocal`, dùng `Thread.ofVirtual().inheritInheritableThreadLocals(false)`.
 - Kernel CPU-bound nặng (crypto, compress, số học) → giới hạn song song ≈ số core (fixed platform pool hoặc `Semaphore`).
 - JNI / thư viện giữ native lock lâu → đo pinning; cân nhắc platform thread hoặc tách đoạn native.
+
+### 2.1 Cơ chế nội bộ Virtual Threads (Continuation & Carrier Pool)
+
+- **Mount / Unmount:** mỗi virtual thread là một đối tượng Java nhỏ bọc một **Continuation** (stack frame lưu dạng *stack chunk* trên Java heap). Khi chạy, JVM *mount* VT lên một carrier platform thread thuộc FIFO `ForkJoinPool`; khi gặp điểm blocking hỗ trợ Loom (socket I/O, `LockSupport.park`, `Thread.sleep`, `BlockingQueue`, và từ JDK 24 cả `synchronized`), JVM *unmount* VT (lưu stack chunk lại trên heap) và trả carrier ngay cho VT khác.
+- **Đặc tính cố định của VT:**
+  - Luôn là **daemon thread** (`setDaemon(false)` ném `IllegalArgumentException`) → JVM không đợi VT kết thúc khi mọi non-daemon thread đã dừng; cần `join()` hoặc `ExecutorService.close()`.
+  - Priority cố định `Thread.NORM_PRIORITY` (gọi `setPriority` bị bỏ qua).
+  - Không dùng được làm shutdown hook (`Runtime.addShutdownHook` ném `IllegalArgumentException`).
+  - `Thread.getAllStackTraces()` không liệt kê hết hàng trăm nghìn VT → chẩn đoán bằng `jcmd <pid> Thread.dump_to_file -format=json` ([memory-ffm.md](memory-ffm.md#9-chẩn-đoán-jfr-jep-536--jcmd)).
 
 ---
 
@@ -295,7 +307,7 @@ if (lock.tryLock(1, TimeUnit.SECONDS)) {
 |---------|----------|
 | `ReentrantLock` | Lock linh hoạt, try/timeout, interruptible acquisition, fairness |
 | `ReentrantReadWriteLock` | Nhiều reader / ít writer |
-| `StampedLock` | Optimistic read nâng cao |
+| `StampedLock` | Optimistic read nâng cao (**không reentrant** — cùng thread khóa write 2 lần sẽ deadlock; không có `Condition`) |
 | `Semaphore` | Giới hạn số permit (vd. giới hạn song song CPU / downstream) |
 | `CountDownLatch` | Một lần chờ N sự kiện |
 | `CyclicBarrier` | N thread gặp nhau lặp lại |
@@ -313,6 +325,53 @@ LongAdder hits = new LongAdder(); // cao contention hơn AtomicLong
 hits.increment();
 long total = hits.sum();
 ```
+
+### 5.4 Patterns nâng cao: `StampedLock` Optimistic Read, Lock Downgrading & ABA
+
+#### `StampedLock` Optimistic Read (đọc nhiều, ghi rất ít)
+
+```java
+final class PointState {
+    private final StampedLock sl = new StampedLock();
+    private double x, y;
+
+    void move(double dx, double dy) {
+        long stamp = sl.writeLock();
+        try {
+            x += dx;
+            y += dy;
+        } finally {
+            sl.unlockWrite(stamp);
+        }
+    }
+
+    double distanceFromOrigin() {
+        long stamp = sl.tryOptimisticRead(); // không chiếm khóa, chỉ lấy version stamp
+        double cx = x, cy = y;               // copy ra local trước khi validate!
+        if (!sl.validate(stamp)) {           // nếu có writer xen vào → fallback sang readLock
+            stamp = sl.readLock();
+            try {
+                cx = x;
+                cy = y;
+            } finally {
+                sl.unlockRead(stamp);
+            }
+        }
+        return Math.hypot(cx, cy);
+    }
+}
+```
+
+- **Lưu ý sống còn:** `StampedLock` **không reentrant** (cùng thread gọi `writeLock()` hai lần sẽ tự deadlock), không hỗ trợ `Condition`, và luôn phải kiểm tra `sl.validate(stamp)` sau khi copy dữ liệu ra biến local.
+
+#### `ReentrantReadWriteLock` — Lock Downgrading (chỉ hạ cấp, không nâng cấp)
+
+- **Downgrade (Write → Read): ĐƯỢC PHÉP** — giữ write lock, lấy read lock, rồi nhả write lock (đảm bảo không có writer khác xen giữa lúc chuyển sang đọc).
+- **Upgrade (Read → Write): DEADLOCK!** Thread đang giữ read lock mà gọi `writeLock().lock()` sẽ tự chờ chính mình nhả read lock.
+
+#### Bài toán ABA & `AtomicStampedReference`
+
+Với thuật toán lock-free (CAS), nếu giá trị đổi `A → B → A` giữa lúc thread 1 đọc và `compareAndSet(A, C)`, CAS vẫn thành công dù cấu trúc bên trong đã thay đổi (nguy hiểm với stack/queue lock-free tái sử dụng node). Giải pháp: gắn version counter bằng `AtomicStampedReference<V>` (hoặc `AtomicMarkableReference<V>` cho 1 bit boolean đánh dấu xóa logic).
 
 ---
 
@@ -424,6 +483,60 @@ Publication an toàn:
 
 Busy-wait trên `boolean` không `volatile` / không sync → **không** có happens-before — có thể không bao giờ thấy update (tương tự pitfall Go memory model).
 
+### 7.1 Safe Publication, DCL, False Sharing & Thread States
+
+#### 4 cách Safe Publication chuẩn trong JMM
+
+1. Khởi tạo trong **static initializer** (`static final Foo INSTANCE = new Foo();` hoặc **Initialization-on-Demand Holder** dùng static nested class — lazy, thread-safe, zero synchronization overhead).
+2. Lưu reference vào trường **`volatile`** hoặc **`AtomicReference`**.
+3. Lưu vào trường **`final`** của object được khởi tạo đúng cách (không để `this` thoát khỏi constructor).
+4. Mọi thao tác ghi và đọc đều bảo vệ bởi **cùng một lock** (`synchronized` / `Lock`).
+
+```java
+// Cách 1 (khuyến nghị nhất cho lazy singleton không tham số): Holder idiom
+final class Registry {
+    private Registry() {}
+    private static final class Holder {
+        static final Registry INSTANCE = new Registry(); // JVM đảm bảo class init thread-safe 1 lần
+    }
+    public static Registry getInstance() { return Holder.INSTANCE; }
+}
+
+// Cách 2 (Double-Checked Locking — BẮT BUỘC có volatile!):
+private volatile ExpensiveClient client;
+ExpensiveClient client() {
+    ExpensiveClient local = client;          // đọc volatile 1 lần trên fast path
+    if (local == null) {
+        synchronized (this) {
+            local = client;
+            if (local == null) {
+                client = local = new ExpensiveClient();
+            }
+        }
+    }
+    return local;
+}
+```
+
+*(Trên Java 27 preview, **JEP 531 `LazyConstant`** thay thế DCL thủ công với khả năng constant-folding của JIT — xem [typesystem.md](typesystem.md#42-lazy-constants-preview-jep-531).)*
+
+#### False Sharing & Contention
+
+Khi hai biến mutable nóng (ví dụ hai biến đếm độc lập) nằm cạnh nhau trong cùng **CPU cache line (64 bytes)**, nhiều core ghi đồng thời sẽ liên tục vô hiệu hóa cache của nhau dù không dùng chung biến. Với bộ đếm tranh chấp cao, ưu tiên **`LongAdder` / `LongAccumulator`** (phân tán theo mảng cell có padding nội bộ `@Contended`) thay vì `AtomicLong`.
+
+#### Vòng đời trạng thái `Thread.State` & Phát hiện Deadlock
+
+| Trạng thái | Ý nghĩa |
+|---|---|
+| `NEW` | Đã tạo, chưa gọi `start()` |
+| `RUNNABLE` | Đang chạy hoặc sẵn sàng nhận CPU (kể cả khi đang chờ I/O ở tầng OS đối với platform thread) |
+| `BLOCKED` | Đang chờ vào monitor `synchronized` |
+| `WAITING` | Chờ vô thời hạn (`Object.wait()`, `Thread.join()`, `LockSupport.park()`) |
+| `TIMED_WAITING` | Chờ có thời hạn (`sleep`, `wait(ms)`, `join(ms)`, `parkNanos`) |
+| `TERMINATED` | Đã kết thúc |
+
+Chẩn đoán deadlock runtime qua JMX: `ManagementFactory.getThreadMXBean().findDeadlockedThreads()` hoặc `jcmd <pid> Thread.print` / `Thread.dump_to_file`.
+
 ---
 
 ## 8. Interruption & joining
@@ -498,6 +611,16 @@ Các factory có sẵn trong [API JDK 27](https://docs.oracle.com/en/java/javase
 // open() dùng awaitAllSuccessfulOrThrow(): join trả Void, đọc từng Subtask.get().
 // open(Joiner.<String>allSuccessfulOrThrow()): join trả List<String>.
 // open(Joiner.<String>anySuccessfulOrThrow()): join trả String từ task thắng.
+// open(Joiner.awaitAll()): chờ mọi subtask xong dù thành công hay lỗi, không hủy sibling.
+
+// Cấu hình timeout (JEP 533): quá hạn → hủy scope; join() ném ExecutionException (cause: CancelledByTimeoutException)
+try (var scope = StructuredTaskScope.open(
+        Joiner.<String>allSuccessfulOrThrow(),
+        cf -> cf.withTimeout(Duration.ofSeconds(2)))) {
+    scope.fork(() -> callServiceA());
+    scope.fork(() -> callServiceB());
+    List<String> results = scope.join();
+}
 ```
 
 | Policy (tinh thần) | Hành vi |
@@ -580,9 +703,9 @@ Khi chưa bật preview / cần stable API: fan-out bằng VT executor + hủy t
 | 21 | Virtual threads **final**; `Thread.ofVirtual` / `ofPlatform` |
 | **24** | JEP 491: bỏ pinning do monitor; loại bỏ `jdk.tracePinnedThreads` |
 | 21–24 | Scoped Values / Structured Concurrency preview nhiều vòng |
-| **25 LTS** | Scoped Values **final** (JEP 506); Structured Concurrency Fifth Preview (JEP 505) |
-| **26** | Structured Concurrency Sixth Preview (JEP 525); Lazy Constants preview |
-| **27** | Structured Concurrency **Seventh Preview** (JEP 533) |
+| **25 LTS** | Scoped Values **final** (JEP 506); Structured Concurrency Fifth Preview (JEP 505); Stable Values First Preview (JEP 502) |
+| **26** | Structured Concurrency Sixth Preview (JEP 525); Lazy Constants Second Preview (JEP 526, đổi tên từ Stable Values) |
+| **27** | Structured Concurrency **Seventh Preview** (JEP 533); Lazy Constants **Third Preview** (JEP 531) |
 
 ---
 
