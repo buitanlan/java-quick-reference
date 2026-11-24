@@ -50,7 +50,8 @@ java.lang.Object
    ├─ java.lang.Error
    │  ├─ OutOfMemoryError
    │  ├─ StackOverflowError
-   │  ├─ NoClassDefFoundError
+   │  ├─ LinkageError
+   │  │  └─ NoClassDefFoundError
    │  └─ ...
    └─ java.lang.Exception
       ├─ java.io.IOException
@@ -60,12 +61,12 @@ java.lang.Object
       └─ java.lang.RuntimeException          ← unchecked
          ├─ NullPointerException
          ├─ IllegalArgumentException
+         │  └─ NumberFormatException
          ├─ IllegalStateException
          ├─ IndexOutOfBoundsException
          ├─ ClassCastException
          ├─ UnsupportedOperationException
          ├─ ArithmeticException
-         ├─ NumberFormatException
          ├─ UncheckedIOException
          └─ ...
 ```
@@ -78,7 +79,7 @@ Mọi thứ ném được đều là `Throwable`. Thực tế ứng dụng hầu
 
 | Nhóm | Ví dụ | Compiler bắt buộc xử lý? | Khi nào dùng |
 |------|--------|---------------------------|--------------|
-| **Checked** (`Exception` trừ `RuntimeException`) | `IOException`, `SQLException` | Có — `catch` hoặc `throws` | Lỗi Recoverable mà caller nên biết (I/O, …) |
+| **Checked** (`Throwable` trừ cây `RuntimeException` và cây `Error`; thường là subtype của `Exception`) | `IOException`, `SQLException` | Có — `catch` hoặc `throws` | Lỗi recoverable mà caller nên biết (I/O, …) |
 | **Unchecked** (`RuntimeException`) | `NPE`, `IAE`, `ISE` | Không | Lỗi lập trình / precondition / state |
 | **`Error`** | `OutOfMemoryError` | Không (và không nên catch thường) | Thất bại JVM / môi trường — hiếm khi recover |
 
@@ -109,13 +110,14 @@ try {
     log.warn("I/O", e);
     // khôi phục / thông báo
 } finally {
-    cleanup(); // chạy gần như luôn (trừ khi JVM halt / daemon kill cứng)
+    cleanup(); // khi luồng điều khiển rời try/catch theo quy tắc ngôn ngữ
 }
 ```
 
 - Thứ tự `catch`: **cụ thể trước, tổng quát sau** (subtype trước supertype).
 - `finally` chạy cả khi có `return` trong `try`/`catch` — tránh `return` trong `finally` (che mất exception/return gốc; style hiện đại cấm).
 - Có thể chỉ `try`/`finally` không `catch`.
+- Không bảo đảm chạy khi JVM kết thúc (`System.exit`, `halt`, kill/crash), hoặc khi luồng không bao giờ rời `try` (vòng lặp/chờ vô hạn).
 
 ```java
 try {
@@ -139,7 +141,7 @@ try {
 }
 ```
 
-- Biến `e` là **effectively final**; kiểu là lub (least upper bound) của các alternative.
+- Biến `e` là **implicitly final** (không được gán lại); kiểu là lub (least upper bound) của các alternative.
 - Không bắt hai kiểu có quan hệ kế thừa trong cùng multi-catch (thừa / lỗi).
 
 ---
@@ -171,6 +173,10 @@ try (var _ = lock.acquire()) {
 
 Exception khi `close()` không làm mất exception gốc từ body — chúng thành **suppressed** (mục 9).
 
+- Nếu body hoàn tất bình thường, exception từ lần `close()` thất bại đầu tiên là lỗi chính; các lỗi đóng tiếp theo là suppressed.
+- Nếu khởi tạo resource sau thất bại, các resource đã khởi tạo trước vẫn được đóng. Resource có giá trị `null` được bỏ qua.
+- Java 9+ cho phép `try (reader)` nếu biến `reader` đã khai báo là `final` hoặc effectively final.
+
 ---
 
 ## 7. `throw` / `throws`
@@ -185,8 +191,8 @@ throw e; // rethrow biến đã catch
 ### 7.2 `throws`
 
 ```java
-public byte[] load(String name) throws IOException, InterruptedException {
-    // ...
+public byte[] load(String name) throws IOException {
+    return Files.readAllBytes(Path.of(name));
 }
 ```
 
@@ -268,11 +274,11 @@ try {
 Tự gắn suppressed:
 
 ```java
-Exception primary = ...;
+Exception primary = new IOException("operation failed");
 try {
     // ...
 } catch (Exception e) {
-    primary.addSuppressed(e);
+    if (e != primary) primary.addSuppressed(e); // self-suppression bị cấm
 }
 throw primary;
 ```
@@ -315,7 +321,7 @@ public class ValidationException extends RuntimeException {
     private final List<String> messages;
     public ValidationException(List<String> messages) {
         super(String.join("; ", messages));
-        this.messages = messages;
+        this.messages = List.copyOf(messages);
     }
     public List<String> messages() { return messages; }
 }
@@ -332,7 +338,7 @@ for (AutoCloseable c : resources) {
         c.close();
     } catch (Exception e) {
         if (primary == null) primary = e;
-        else primary.addSuppressed(e);
+        else if (e != primary) primary.addSuppressed(e);
     }
 }
 if (primary != null) throw primary;
@@ -442,9 +448,9 @@ catch (IOException e) {
 Repo hôm nay Postgres, mai có thể đổi — **không** để `SQLException` / driver type xuyên module public:
 
 ```java
-public User get(long id) {
+public User get(long id) throws StorageException {
     try {
-        return jdbc.query(...);
+        return jdbc.query(id); // API repository minh họa, có thể ném SQLException
     } catch (SQLException e) {
         if (isNoData(e)) {
             throw new NotFoundException(String.valueOf(id));
@@ -497,11 +503,14 @@ Nuốt mà không `interrupt()` → vòng chờ sau khó hủy đúng — chi ti
 
 ```java
 try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    executor.submit(() -> {
+    Future<?> task = executor.submit(() -> {
         // ...
     });
+    task.get(); // quan sát lỗi qua ExecutionException; xử lý/khai báo cả InterruptedException
 }
 ```
+
+`submit` giữ lỗi task trong `Future`; lỗi đó không tự chạy qua `UncaughtExceptionHandler`. Handler áp dụng cho lỗi thoát ra khỏi `Thread.run()`; luôn quan sát kết quả của task đã submit.
 
 Xem [threading.md](threading.md), [async.md](async.md).
 
@@ -511,8 +520,9 @@ Xem [threading.md](threading.md), [async.md](async.md).
 
 | API | Bọc |
 |-----|-----|
-| `join()` / `getNow` fail path / `whenComplete` | thường `CompletionException` (unchecked) |
-| `get()` | `ExecutionException` (checked) + có thể `InterruptedException` |
+| `join()` / `getNow` fail path | `CompletionException` (unchecked); cancellation trực tiếp ném `CancellationException` |
+| `get()` | `ExecutionException` (checked); chờ có thể `InterruptedException`, cancellation trực tiếp là `CancellationException` |
+| `whenComplete` / `handle` / `exceptionally` | Nhận `Throwable` mà stage hoàn tất với; có thể là lỗi gốc hoặc wrapper, không luôn là `CompletionException` |
 
 ```java
 try {
@@ -735,7 +745,7 @@ public final class ExceptionDemo {
         } catch (UncheckedIOException e) {
             Throwable root = e.getCause() != null ? e.getCause() : e;
             System.err.println(root);
-            for (Throwable s : e.getSuppressed()) {
+            for (Throwable s : root.getSuppressed()) {
                 System.err.println("suppressed: " + s);
             }
         }
@@ -760,6 +770,7 @@ public final class ExceptionDemo {
 | `InterruptedException` | Thread bị interrupt khi chờ |
 | `CompletionException` | Bọc lỗi trong `CompletableFuture` (`join`) |
 | `ExecutionException` | Bọc lỗi trong `Future.get()` / tương tự |
+| `CancellationException` | Future/stage đã bị hủy |
 
 ---
 

@@ -1,8 +1,8 @@
 # Hàm Main
 
 Mỗi chương trình Java độc lập cần một điểm vào (entry point) để JVM khởi chạy. Điểm vào cổ điển là
-`public static void main(String[] args)` trên một class có tên. Từ **Java 27**, **JEP 512 Compact Source Files
-and Instance Main Methods** đã trở thành tính năng chính thức: có thể viết chương trình đơn giản bằng *unnamed class*,
+`public static void main(String[] args)` trên một class có tên. Từ **Java 25**, **JEP 512 Compact Source Files
+and Instance Main Methods** đã trở thành tính năng chính thức: có thể viết chương trình đơn giản bằng *implicitly declared class*,
 *instance main*, và cú pháp launch rút gọn — phù hợp script/demo — rồi chuyển dần sang class có tên khi dự án lớn lên.
 
 Tài liệu này là tham khảo thực hành: signature hợp lệ, launcher, mã thoát, và lộ trình từ compact source sang named class.
@@ -21,7 +21,7 @@ Tài liệu này là tham khảo thực hành: signature hợp lệ, launcher, m
   - [3. Overload \& `String... args`](#3-overload--string-args)
   - [4. Tham số dòng lệnh](#4-tham-số-dòng-lệnh)
   - [5. JEP 512 — Compact Source Files \& Instance Main (Java 25)](#5-jep-512--compact-source-files--instance-main-java-25)
-    - [5.1 Unnamed class](#51-unnamed-class)
+    - [5.1 Class khai báo ngầm](#51-class-khai-báo-ngầm)
     - [5.2 Instance main \& simplified launch](#52-instance-main--simplified-launch)
     - [5.3 Các dạng main được launcher chấp nhận](#53-các-dạng-main-được-launcher-chấp-nhận)
     - [5.4 `java.lang.IO`](#54-javalangio)
@@ -35,7 +35,7 @@ Tài liệu này là tham khảo thực hành: signature hợp lệ, launcher, m
 
 ## 1. Tổng quan điểm vào
 
-- JVM tìm **một** phương thức main trên class được chỉ định (hoặc trên unnamed class của compact source).
+- Launcher chọn **một** phương thức main trên class được chỉ định (hoặc class khai báo ngầm của compact source).
 - Classic: `public static void main(String[] args)` — vẫn là chuẩn cho hầu hết ứng dụng production.
 - Java 25: compact source + instance main cho phép bỏ boilerplate `class`/`public`/`static` ở chương trình nhỏ.
 - Giá trị trả về của tiến trình: mặc định **0** nếu main kết thúc bình thường; dùng `System.exit(code)` hoặc
@@ -57,8 +57,7 @@ public class HelloWorld {
 
 Yêu cầu (class có tên, mô hình truyền thống):
 
-- Class chứa main phải là **public** nếu file tên trùng class public, hoặc ít nhất **accessible** từ launcher
-  (package-private class vẫn chạy được nếu chỉ định đúng binary name).
+- Class chứa main có thể là `public` hoặc package-private; chỉ định đúng binary name. Với `javac`, tên file phải khớp tên top-level class `public`.
 - `main` phải là **`public static`**, tên chính xác `main`, trả về **`void`**.
 - Tham số: `String[]` hoặc `String...` (varargs — cùng bytecode array).
 - Có thể ném checked exception: `throws Exception` hợp lệ; exception không bắt → JVM in stacktrace và exit ≠ 0.
@@ -93,8 +92,7 @@ java com/example/App.java hello
 
 ## 3. Overload & `String... args`
 
-Chỉ **một** signature được coi là entry point hợp lệ theo quy tắc launcher. Các overload khác là method bình thường —
-không tự động trở thành điểm vào.
+Theo quy tắc classic, entry point nhận `String[]`. Từ Java 25, `main()` cũng có thể là candidate; nếu cả hai tồn tại, launcher ưu tiên dạng nhận `String[]`. Overload như `main(int)` vẫn là method bình thường.
 
 ```java
 public class Overloads {
@@ -114,8 +112,7 @@ public class Overloads {
 ```
 
 - `String... args` ≡ `String[] args` tại runtime; bên trong method `args` vẫn là mảng.
-- `static void main()` không tham số: **không** là entry point classic (trừ khi dùng quy tắc JEP 512 / instance main
-  — xem mục 5). Với class có tên kiểu cũ, launcher đòi hỏi tham số `String[]`/`String...`.
+- `static void main()` không tham số: không hợp lệ theo launcher Java 24 trở về trước khi tắt preview; **hợp lệ từ Java 25**, cả trong class có tên. Quy tắc JEP 512 áp dụng cho named class và compact source — xem mục 5.
 - Không dùng `Object[]`, `List<String>`, hay generic làm tham số main entry.
 
 ---
@@ -144,13 +141,13 @@ public class Cli {
 
 **JEP 512** (final trong Java 25) chuẩn hóa trải nghiệm “chương trình đơn giản”:
 
-1. **Compact source file** — file nguồn không khai báo class tường minh → trình biên dịch tạo **unnamed class**.
+1. **Compact source file** — file nguồn không khai báo class bao tường minh → trình biên dịch tạo **implicitly declared class** (class khai báo ngầm).
 2. **Instance main methods** — cho phép `void main()` / `void main(String[] args)` dạng instance (không bắt buộc `static`).
 3. **Simplified launch** — `java Hello.java` chạy trực tiếp; giảm yêu cầu `public`/`static` cho entry đơn giản.
 
 Mục tiêu: học/demo/script gần gũi hơn, vẫn migrate được sang class có tên khi cần package/module/test.
 
-### 5.1 Unnamed class
+### 5.1 Class khai báo ngầm
 
 ```java
 // Hello.java — compact source (không có khai báo class)
@@ -159,17 +156,16 @@ void main() {
 }
 ```
 
-- File compact source được biên dịch thành class **không tên** (unnamed); không dùng làm API public, không reference
-  từ class khác bằng tên thông thường.
+- Compact source khai báo ngầm một top-level class `final`. Compiler tạo binary name, nhưng source code không được tham chiếu class này bằng tên đó; đây không phải anonymous class hay JVM hidden class.
 - Có thể chứa fields, methods, nested types phụ trợ trong cùng file theo quy tắc của JEP — coi như “lớp ẩn” bao quanh.
-- Không khai báo `package` trong compact source điển hình; khi cần package/module → chuyển sang named class.
+- Compact source **không được khai báo `package`**: class nằm trong unnamed package và unnamed module. Phải có launchable `main`, không được khai báo constructor tường minh; khi cần package/module → chuyển sang named class.
 
 ### 5.2 Instance main & simplified launch
 
 ```java
 // Instance main — không static
 void main(String[] args) {
-    IO.println("args=" + args.length); // API đơn giản hóa in (nếu dùng trong compact context hiện đại)
+    IO.println("args=" + args.length); // java.lang.IO dùng được trong mọi source từ Java 25
 }
 ```
 
@@ -184,14 +180,14 @@ static void main() {
 Launcher (Java 27, JEP 512 từ 25) chọn candidate main theo thứ tự ưu tiên đã chuẩn hóa trong JEP (tóm tắt thực dụng):
 
 1. Ưu tiên `main` với `String[]`/`String...` nếu có.
-2. Cho phép instance main: JVM tạo instance (constructor không-arg) rồi gọi.
-3. Cho phép `main()` không tham số trong mô hình compact / flexible launch.
+2. Nếu không có candidate nhận `String[]`, chọn candidate `main()` không tham số.
+3. Nếu candidate là `static`, gọi trực tiếp; nếu là instance, tạo object bằng constructor không tham số không `private`, rồi gọi. Không fallback sang candidate khác nếu bước tạo object thất bại.
 
-> Chi tiết thứ tự chính xác nên đối chiếu JEP 512 / release notes JDK 27 khi viết tool dựa vào reflection entry point.
+Candidate phải trả `void`, không `private` (có thể `public`, `protected`, package-private), nhận `String[]` hoặc không tham số; áp dụng cả named class. Xem [JLS 27 §12.1.4](https://docs.oracle.com/javase/specs/jls/se27/html/jls-12.html#jls-12.1.4) cho quy tắc inheritance và launch đầy đủ.
 
 ### 5.3 Các dạng main được launcher chấp nhận
 
-Trong hệ sinh thái Java 27 (classic + JEP 512), các dạng thường gặp:
+Trong Java 27 (classic + JEP 512), các dạng thường gặp dưới đây là **các lựa chọn độc lập**, không khai báo tất cả trong cùng class:
 
 ```java
 // Classic — production chuẩn
@@ -210,7 +206,7 @@ static void main(String[] args) { }
 
 ### 5.4 `java.lang.IO`
 
-JEP 512 kèm class **`java.lang.IO`** (cùng module `java.base`) cho I/O console đơn giản trong compact source:
+JEP 512 kèm class **`java.lang.IO`** (cùng module `java.base`) cho I/O console đơn giản, dùng được cả trong named class:
 
 ```java
 void main() {
@@ -222,7 +218,7 @@ void main() {
 
 - `IO.println` / `IO.print` / `IO.readln` — không cần `System.out` cho script.
 - Production app vẫn dùng logging / `System.out` có chủ đích; `IO` không thay `java.nio` hay HTTP.
-- Compact source import sẵn một số kiểu đơn giản theo JEP — khi migrate sang named class, thêm `import` tường minh.
+- Compact source import ngầm `import module java.base;`. Khi chuyển sang named class, thêm imports cần thiết hoặc module import này. `IO` thuộc `java.lang` nên vẫn được import ngầm trong mọi source; các static method của `IO` không được import ngầm.
 
 ---
 
@@ -291,11 +287,11 @@ public class ExitDemo {
 
 - **`System.exit(status)`**: khởi động shutdown sequence — chạy shutdown hooks, rồi kết thúc JVM.
 - **`Runtime.getRuntime().halt(status)`**: thoát **ngay**, bỏ qua hooks — chỉ dùng khi hooks treo/deadlock.
-- Uncaught exception trên non-daemon thread (thường là main): JVM in trace, exit code khác 0 (thường 1).
+- Uncaught exception ở `main` với launcher/handler mặc định thường cho mã thoát 1. Exception ở worker chỉ kết thúc thread đó; không tự bảo đảm cả process có mã thoát khác 0. `main` return cũng chưa kết thúc JVM nếu còn non-daemon threads.
 - Shutdown hooks:
 
 ```java
-Runtime.getRuntime().addShutdownHook(Thread.ofVirtual().unstarted(() -> {
+Runtime.getRuntime().addShutdownHook(Thread.ofPlatform().unstarted(() -> {
     // dọn tài nguyên; giữ ngắn, tránh block lâu
 }));
 ```
@@ -360,15 +356,15 @@ Checklist migrate:
 - Thêm `package`, chuyển sang cấu trúc thư mục `src/main/java/...`.
 - Đổi instance main → `public static void main` nếu framework/tooling yêu cầu.
 - Thêm build tool (Maven/Gradle), test, `module-info` nếu dùng JPMS.
-- Không giữ unnamed class trong thư viện chia sẻ — chỉ dùng cho app entry/demo.
+- Không dùng class khai báo ngầm làm API thư viện chia sẻ — chỉ dùng cho app entry/demo.
 
 ---
 
 ## 9. Pitfalls (Bẫy)
 
-1. **Sai chữ ký classic** — `Main`, `main(String args)`, `public void main` (thiếu `static`) → launcher không tìm thấy entry / `NoSuchMethodError: main`.
+1. **Sai candidate** — `Main`, `main(String args)`, `private void main()` không là entry point. `public void main(String[] args)` **hợp lệ từ Java 25** nếu class tạo được instance; trên launcher cũ cần dạng classic hoặc preview tương ứng.
 2. **Instance main không instantiable** — class abstract, không có no-arg ctor phù hợp, hoặc ctor ném → launch thất bại dù có `void main(...)`.
-3. **Unnamed class như API** — compact source không phải library type; không `import`/reference từ file khác như class có tên.
+3. **Class khai báo ngầm như API** — compact source không phải library type; không `import`/reference từ file khác như class có tên.
 4. **Nhầm overload với entry** — nhiều `main` overload: launcher chọn theo quy tắc JEP 512 / classic; đừng giả định “method đầu tiên trong file”.
 5. **Sai tên class khi launch** — `java App` cần `App.class` trên classpath; package phải khớp (`java com.example.App`).
 6. **Daemon / non-daemon** — main return nhưng còn non-daemon thread → JVM **không** thoát; kiểm soát vòng đời rõ — [threading.md](threading.md).

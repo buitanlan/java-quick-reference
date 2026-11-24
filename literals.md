@@ -2,7 +2,7 @@
 
 **Literal** là giá trị viết trực tiếp trong mã nguồn. Tài liệu nhắm **Java 27**: số nguyên/thực,
 `char`, `String` / **text blocks**, `boolean`, `null`, class literal, enum constants, underscore trong số,
-và liên hệ `_` unnamed trong patterns.
+và liên hệ `_` unnamed trong patterns. Theo JLS §3.10, literals gồm số nguyên/thực, boolean, char, string/text block và null; **class literal** là một dạng expression riêng (§15.8.2), **enum constant** là field/instance, không phải literal theo phân loại từ vựng.
 
 > Cross-link: [typesystem.md](typesystem.md) · [operators.md](operators.md) · [keywords.md](keywords.md) (unnamed `_`) ·
 > [statements.md](statements.md)
@@ -45,13 +45,15 @@ long hexLong = 0xFF_FF_FF_FFL;
 
 Phạm vi:
 
-- Literal `int` phải nằm trong `Integer.MIN_VALUE..MAX_VALUE` (trừ khi gắn `L`).
+- Decimal `int` literal thường trong `0..2147483647`; dấu `-` là unary operator. Giá trị `2147483648` chỉ được dùng trực tiếp làm operand của unary `-`.
+- Hex/binary/octal có thể biểu diễn **bit pattern** 32-bit (64-bit khi có `L`): `0xFFFF_FFFF` là `int -1`, không phải số dương 4_294_967_295. Muốn giá trị dương đó, viết `0xFFFF_FFFFL`.
 - `2147483648` không hợp lệ kiểu `int`; dùng `2147483648L` hoặc `-2147483648` (biên đặc biệt của `int`).
 
 ```java
 int min = -2147483648;     // OK — đúng MIN_VALUE
 // int bad = 2147483648;   // lỗi
 long ok = 2147483648L;
+long minLong = -9223372036854775808L; // biên đặc biệt tương tự của long
 ```
 
 ---
@@ -72,6 +74,7 @@ double hexFloat = 0x1.8p1; // 3.0
 ```
 
 - IEEE 754 — sai số nhị phân; tiền tệ dùng `BigDecimal` (tạo từ `String`, tránh `new BigDecimal(0.1)`).
+- Literal floating-point khác 0 mà quá lớn thành infinity hoặc quá nhỏ bị làm tròn về 0 gây lỗi biên dịch. `NaN`/infinity không có literal riêng; dùng `Double.NaN`, `Double.POSITIVE_INFINITY` khi cần.
 
 ```java
 BigDecimal price = new BigDecimal("19.99");
@@ -95,11 +98,12 @@ int hex = 0xFF_EC_DE_5E;
 
 | Vị trí cấm | Ví dụ sai |
 |------------|-----------|
-| Đầu / cuối literal | `_1`, `1_` |
+| Đầu / cuối literal | `_1` là identifier (không phải numeric literal); `1_` là literal sai |
 | Cạnh `.` thập phân | `3_.14`, `3._14` |
 | Ngay sau `0x` / `0b` | `0x_FF`, `0b_01` |
 | Trước suffix | `1000_L`, `1.0_f` |
-| Trong khoảng trống liên tiếp “lạ” vẫn OK nhiều `_` giữa chữ số | `1__000` hợp lệ nhưng tránh style |
+
+Nhiều `_` liên tiếp giữa chữ số vẫn hợp lệ: `1__000`; tránh nếu làm khó đọc.
 
 ---
 
@@ -147,7 +151,7 @@ char c4 = 65;       // 'A'
 | `\'` | single quote |
 | `\\` | backslash |
 | `\uXXXX` | Unicode hex (đúng 4 chữ) |
-| `\s` | space (text block — Java 15+) |
+| `\s` | space (char, string và text block — Java 15+) |
 
 - `\u` xử lý **sớm** trên toàn source (kể cả comment) — cẩn thận ghi `\u` trong comment.
 - Octal escape kiểu C tồn tại hạn chế trong string cổ — ưu tiên `\u` / text block.
@@ -166,10 +170,10 @@ char[] chars = Character.toChars(grinning);
 String s = "Hello";
 String t = "Line1\nLine2";
 String q = "He said \"hi\"";
-String path = "C:\\\\temp"; // Windows path trong chuỗi thường
+String path = "C:\\temp"; // nội dung C:\temp, một backslash
 ```
 
-- Literal cùng nội dung có thể **intern** → `==` có thể true; **luôn** so `equals` cho nội dung — [typesystem.md](typesystem.md) · [operators.md](operators.md).
+- String literals và String constant expressions cùng nội dung được **intern** theo JLS; cùng reference là bảo đảm trong trường hợp này. Với chuỗi runtime nói chung, so nội dung bằng `equals` — [typesystem.md](typesystem.md) · [operators.md](operators.md).
 - Nối compile-time constant được gộp bởi compiler.
 - `String` là reference; literal không phải primitive.
 - Không có verbatim `@""` như C# — dùng text blocks hoặc escape.
@@ -178,7 +182,7 @@ String path = "C:\\\\temp"; // Windows path trong chuỗi thường
 String a = "java";
 String b = "java";
 String c = new String("java");
-// a == b thường true (pool); a == c false; a.equals(c) true
+// a == b luôn true (intern); a == c false; a.equals(c) true
 ```
 
 ---
@@ -205,17 +209,17 @@ String query = """
 ### 7.1 Incidental whitespace
 
 - Nội dung bắt đầu **sau** dòng mở `"""`.
-- Vị trí cột của dấu đóng `"""` quyết định mức **incidental indent** bị strip khỏi mọi dòng nội dung.
+- Mức incidental indent lấy theo dòng nội dung không trống ít thụt vào nhất, cùng vị trí delimiter đóng nếu nó nằm trên dòng riêng. Delimiter đóng ở cột 0 có thể giữ lại toàn bộ leading indent.
 - Dòng chỉ whitespace có thể bị rút theo quy tắc JLS — đừng giả định “mọi khoảng trắng được giữ”.
 
 ```java
-// Đóng """ lệch trái → strip nhiều indent
+// Đóng cùng cột nội dung → strip 4 spaces đầu mỗi dòng
 String a = """
     line1
     line2
     """;
 
-// Đóng cùng cột với nội dung → giữ indent tương đối khác
+// Đóng ở cột 0 → giữ 4 spaces đầu mỗi dòng nội dung
 String b = """
     line1
     line2
@@ -243,7 +247,7 @@ String kept = """
 String continued = """
         abc\
         def
-        """; // "abcdef" — không có newline giữa abc và def
+        """; // "abcdef\n" — bỏ newline giữa abc và def, vẫn có newline cuối
 ```
 
 ### 7.3 So sánh nhanh
@@ -314,15 +318,17 @@ for (var _ : items) {        // unnamed — Java 22+
     counter++;
 }
 
-yield switch (p) {
+int result = switch (p) { // p có static type Object, Point là record(int x, int y)
     case Point(_, int y) -> y; // bỏ component — xem keywords.md
     case String _ -> 0;
+    case null -> 0;
+    default -> -1;
 };
 ```
 
 Chi tiết unnamed: [keywords.md §4](keywords.md#4-unnamed-variable--pattern-_) · [statements.md](statements.md).
 
-**Version gate:** code dùng `_` làm **tên biến** hợp lệ cũ sẽ gãy từ 22+ — đổi tên identifier.
+**Version gate:** `_` là identifier thường đến Java 8 (có cảnh báo), thành reserved keyword từ **Java 9**. Java 21 preview/22 final cho phép `_` ở vị trí unnamed; không khôi phục khả năng đọc nó như tên biến.
 
 ---
 
@@ -360,7 +366,7 @@ public static final String NAME = "app" + "-" + MAX;
 3. **Text block indent lệch** — JSON/YAML fail vì incidental whitespace / thiếu `\s`.
 4. **Trailing space trong text block** bị strip — cần `\s` cuối dòng.
 5. **`\u` trong comment** — vẫn được dịch sớm; có thể “phá” source nếu viết dở.
-6. **`==` trên String literal** — pool may rủi; luôn `equals` cho nội dung.
+6. **Suy từ literal sang chuỗi runtime** — literal cùng nội dung được intern, nhưng chuỗi tính lúc runtime không bảo đảm cùng identity; dùng `equals` cho nội dung.
 7. **`l` thường cho long** — `1l` dễ đọc thành `11`; dùng `1L`.
 8. **`float` literal thiếu `f`** — `float x = 1.0;` lỗi (mặc định double).
 9. **Nhầm `_` số với unnamed `_`** — ngữ cảnh hoàn toàn khác (7 vs 22).

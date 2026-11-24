@@ -70,8 +70,7 @@ Stream<Double> s6 = Stream.generate(Math::random).limit(5);
 IntStream range = IntStream.range(0, 10);          // 0..9
 IntStream rangeClosed = IntStream.rangeClosed(1, 10);
 
-Stream<String> lines = Files.lines(Path.of("f.txt")); // cần close — dùng try-with-resources
-try (var st = Files.lines(path)) {
+try (Stream<String> st = Files.lines(Path.of("f.txt"))) {
     long n = st.count();
 }
 
@@ -83,6 +82,8 @@ Stream<String> built = b.build();
 
 - `Stream.concat(a, b)` nối hai stream.
 - Infinite stream (`iterate`/`generate`) **phải** có short-circuit / `limit`.
+
+Các operations trong các bảng dưới là **những lựa chọn độc lập**. Mỗi pipeline chỉ có một terminal operation; tạo stream mới nếu muốn chạy thêm pipeline trên cùng nguồn.
 
 ---
 
@@ -180,7 +181,7 @@ Optional<String> max = stream.max(Comparator.naturalOrder());
 ```java
 import static java.util.stream.Collectors.*;
 
-List<String> list = stream.collect(toList());        // mutable ArrayList (cổ điển)
+List<String> list = stream.collect(toList());        // không bảo đảm implementation hay mutability
 List<String> imm = stream.collect(toUnmodifiableList());
 Set<String> set = stream.collect(toSet());
 Collection<String> coll = stream.collect(toCollection(TreeSet::new));
@@ -211,6 +212,8 @@ String names = people.stream()
 ```
 
 Downstream collectors thường gặp: `mapping`, `filtering`, `flatMapping`, `reducing`, `maxBy`, `collectingAndThen`.
+
+`Stream.toList()` bảo đảm unmodifiable và cho phép phần tử null; `Collectors.toUnmodifiableList()` cấm null. `Collectors.toList()` không bảo đảm kiểu list/mutability — cần mutable `ArrayList` thì dùng `toCollection(ArrayList::new)`. `toMap` không có merge function ném `IllegalStateException` khi trùng key; `toUnmodifiableMap` còn cấm null key/value. Tham khảo [Stream API](https://docs.oracle.com/en/java/javase/27/docs/api/java.base/java/util/stream/Stream.html) và [Collectors API](https://docs.oracle.com/en/java/javase/27/docs/api/java.base/java/util/stream/Collectors.html).
 
 ```java
 Map<Dept, Optional<Person>> eldest = people.stream()
@@ -283,7 +286,7 @@ long count = list.parallelStream()
         .count();
 ```
 
-Song song dùng **ForkJoinPool.commonPool()** (trừ khi custom).
+Trên HotSpot/OpenJDK, parallel stream thường dùng **ForkJoinPool.commonPool()** và thread gọi terminal; Stream API không cung cấp tham số executor và không bảo đảm pool cụ thể. Chạy terminal trong custom `ForkJoinPool` là hành vi implementation cần kiểm chứng nếu dựa vào nó.
 
 **Khi hợp lý**:
 
@@ -300,10 +303,12 @@ Song song dùng **ForkJoinPool.commonPool()** (trừ khi custom).
 - `findAny` vs `findFirst`; unordered source có thể tối ưu hơn.
 
 ```java
-// Collector song song cần CONCURRENT / UNORDERED characteristics khi phù hợp
+// Concurrent collector: cho phép tích lũy đồng thời khi characteristics phù hợp
 Map<String, Long> freq = words.parallelStream()
         .collect(groupingByConcurrent(Function.identity(), counting()));
 ```
+
+Collector **không cần** `CONCURRENT` để dùng an toàn trên parallel stream: collector thường như `toList()` dùng container riêng cho từng partition rồi combine. Nguy hiểm là tự thêm vào **một shared ArrayList** trong `forEach`, không phải mọi mutable reduction.
 
 ---
 
@@ -348,10 +353,12 @@ Tự viết gatherer khi cần stateful intermediate phức tạp (debouncing, c
 
 1. **Reuse stream đã consumed** — sau terminal, gọi lại → `IllegalStateException`. Tạo stream mới từ nguồn mỗi lần.
 2. **Side-effect trong `map` / `filter` / `peek`** — mutate shared state, I/O, logging “làm việc thật” → khó debug; parallel thì race. Side-effect chỉ thuộc terminal có chủ đích (`forEach`) hoặc collector.
-3. **Parallel mặc định** — `parallelStream()` dùng **common ForkJoinPool**; dataset nhỏ / I/O blocking / shared mutable thường **chậm hơn hoặc sai**. Prefer sequential + virtual threads cho I/O — [threading.md](threading.md).
+3. **Parallel mặc định** — trên OpenJDK, `parallelStream()` thường dùng common pool (xem §8); dataset nhỏ / I/O blocking / shared mutable thường **chậm hơn hoặc sai**. Prefer sequential + virtual threads cho I/O — [threading.md](threading.md).
 4. **`forEach` + collection không thread-safe** trên parallel — dùng concurrent collector / `forEachOrdered` / serial.
-5. **Không đóng** `Files.lines` / `BufferedReader.lines` — rò tài nguyên; luôn try-with-resources.
+5. **Không đóng resource gốc** — `Files.lines` cần đóng stream; với `BufferedReader.lines`, phải đóng **reader** (đóng stream không tự đóng reader). Dùng try-with-resources cho đúng owner.
 6. **NPE nguồn** — `list.stream()` khi `list == null`; dùng empty collection hoặc `Stream.ofNullable`.
+7. **`peek` không chắc chạy** — pipeline có thể bỏ qua intermediate operations nếu suy ra được kết quả (ví dụ `count()` trên nguồn có size đã biết); terminal không bảo đảm mọi callback đã chạy.
+8. **`findFirst`/`findAny` gặp null** — ném NPE nếu phần tử được chọn là null; lọc null khi contract yêu cầu. `allMatch`/`noneMatch` trên stream rỗng trả true, `anyMatch` trả false.
 
 ```java
 Stream<String> s = list.stream().map(String::trim);

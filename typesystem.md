@@ -76,7 +76,7 @@ Luồng thực thi:
 
 - **Stack** (per thread): frame method — local primitives, references tới object trên heap. Không lưu object “thật”
   (trừ tối ưu escape analysis / scalar replacement — [§2.2](#22-escape-analysis--scalar-replacement)).
-- **Heap**: instance objects, arrays, class metadata liên quan (tùy JVM). GC thu hồi object không còn reachability.
+- **Heap**: instance objects và arrays (trừ allocation được JIT loại bỏ). GC có thể thu hồi object không còn strongly reachable theo quy tắc reference; không bảo đảm thu hồi ngay.
 - **Metaspace** (HotSpot): class metadata — tách khỏi Java heap cổ điển.
 - Local variable chứa **reference** (con trỏ managed), không phải địa chỉ tùy ý như C.
 
@@ -96,7 +96,7 @@ Runtime đáng chú ý (không đổi cú pháp ngôn ngữ):
 
 - **JEP 523 (27) — G1 default everywhere:** G1 là collector mặc định trên mọi cấu hình được hỗ trợ (trước đây một số môi trường nhỏ chọn Serial).
 - **JEP 521 — Generational Shenandoah** (từ 25): Shenandoah theo thế hệ — bật/cấu hình theo flag JVM.
-- **JEP 534 (27) — Compact Object Headers by default:** header 64-bit trên 64-bit (product từ JEP 519 / JDK 25). Tắt layout cũ: `-XX:-UseCompactObjectHeaders`.
+- **JEP 534 (27) — Compact Object Headers by default:** header 64-bit trên HotSpot 64-bit được hỗ trợ (product từ JEP 519 / JDK 25). Dùng lại header truyền thống: `-XX:-UseCompactObjectHeaders`.
 
 Thực hành: chọn GC theo latency/throughput; đo bằng `-Xlog:gc*` / JFR — không đoán mù.
 
@@ -106,7 +106,7 @@ HotSpot **không** cho lập trình viên chọn stack/heap bằng từ khóa. J
 
 | Kết quả EA | Ý nghĩa |
 |---|---|
-| **NoEscape** | Object không thoát khỏi method/thread → có thể **scalar replacement** (phá fields thành locals trên stack/register) hoặc cấp phát stack |
+| **NoEscape** | Object không thoát khỏi phạm vi phân tích → có thể **scalar replacement** (thay object bằng giá trị field trong register/stack); không đồng nghĩa HotSpot cấp phát nguyên object trên stack |
 | **ArgEscape** | Chỉ truyền xuống callee, không lưu trữ lâu → tối ưu hạn chế hơn |
 | **GlobalEscape** | Escape ra heap (field, static, return, đóng vào thread khác…) → cấp phát heap bình thường |
 
@@ -131,7 +131,7 @@ Nguyên nhân escape hay gặp (tương tự tinh thần Go `-gcflags="-m"`):
 | Boxing (`Integer.valueOf`, autobox) | wrapper là object |
 | Capture vào lambda/inner class sống ngoài method | closure giữ reference |
 | Đưa vào collection / array đã escape | reachability |
-| Đồng bộ `synchronized (obj)` / publish sang thread khác | visible cross-thread |
+| Publish sang thread khác | visible cross-thread; riêng `synchronized (obj)` cục bộ không bắt buộc escape và lock có thể được loại bỏ |
 
 - EA là **tối ưu JIT**, không phải đảm bảo ngôn ngữ — đừng phụ thuộc “object này chắc chắn không allocate”.
 - Hot path: ưu tiên primitive, tránh boxing/`Optional` không cần thiết, giữ object cục bộ khi profile nóng.
@@ -254,26 +254,27 @@ void localBlank(boolean flag) {
 }
 ```
 
-- Field không `final` có default (`0`/`null`/`false`) — local **không** có default; đây là khác biệt cố ý.
+- Tất cả fields có default (`0`/`null`/`false`) khi cấp phát, kể cả `final`; blank final còn phải thỏa definite assignment. Local **không** tự có default.
 - Pattern variables (`instanceof String s`) cũng tuân definite assignment / scope theo luồng điều kiện — xem [§12](#12-kiểm-tra-kiểu-instanceof-pattern-matching).
 - Chi tiết `final` trên class/method/field: [oop.md](oop.md), [keywords.md](keywords.md).
 
 ### 4.1 JEP 500 — Prepare to Make Final Mean Final (từ 26)
 
-`final` field **vẫn có thể** bị ghi lại bằng deep reflection (`Field.setAccessible` + `set`) — phá JMM / constant-folding. Từ **Java 26**, mutation bất hợp pháp **cảnh báo** mặc định (`--illegal-final-field-mutation=warn`); bản sau sẽ `deny` (ném `IllegalAccessException`).
+Một số **instance final fields** vẫn có thể bị ghi bằng deep reflection (`Field.setAccessible` + `set`) theo điều kiện access, làm mất giả định về bất biến. Từ **Java 26**, final-field mutation không được cho phép **cảnh báo** mặc định (`--illegal-final-field-mutation=warn`); `deny` đã dùng được để kiểm tra, và dự kiến trở thành mặc định ở bản tương lai.
 
 ```text
 java --enable-final-field-mutation=ALL-UNNAMED ...
-java --illegal-final-field-mutation=deny ...   # tương lai / test cứng
+java --illegal-final-field-mutation=deny ...   # có sẵn từ JDK 26; từ chối mutation không hợp lệ
 ```
 
-- Record / hidden class vốn đã cấm mutate final qua reflection.
+- `static final`, final fields của record và hidden class vốn không writable bằng `Field.set`, kể cả khi enable mutation.
+- Module thực hiện mutation phải được enable, **và** package của field phải mở phù hợp. `--add-opens` đơn độc không enable final-field mutation; enable mutation cũng không tự mở package.
 - Serialization library vẫn có đường hẹp; **đừng** dựa `Field.set` để “cấu hình” object bất biến.
 - JEP: [https://openjdk.org/jeps/500](https://openjdk.org/jeps/500)
 
 ### 4.2 Lazy Constants (preview JEP 531)
 
-**Preview** trên Java 27 ([JEP 531](https://openjdk.org/jeps/531) — Third Preview; đổi tên từ Stable Values / JEP 502). Holder bất biến khởi tạo **lười**, JVM vẫn có thể constant-fold như `final` nếu field chứa `LazyConstant` là `final`. Cần `--enable-preview`.
+**Preview** trên Java 27 ([JEP 531](https://openjdk.org/jeps/531) — Third Preview; đổi tên từ Stable Values / JEP 502). Holder khởi tạo **lười**, không thay được content sau khi khởi tạo. Constant folding cần reference từ `static final` trực tiếp hoặc qua chuỗi trusted fields; chỉ đặt trong một instance field `final` thông thường chưa đủ. Cần `--enable-preview`.
 
 ```java
 static final LazyConstant<Logger> LOG =
@@ -284,10 +285,12 @@ void handle() {
 }
 
 static final List<Worker> POOL = List.ofLazy(4, _ -> new Worker());
-static final Set<Option> FLAGS = Set.ofLazy(Set.of(Option.VERBOSE), Application::isOn);
+static final Map<Option, Boolean> FLAGS =
+        Map.ofLazy(Set.of(Option.VERBOSE), Application::isOn);
 ```
 
 - Không dùng `null` làm giá trị computed.
+- Java 27: computing function chạy tối đa một lần; nếu ném unchecked exception hoặc trả `null`, holder chuyển sang **error state**, không retry. `get()` ném `NoSuchElementException`; lần gây lỗi mang cause gốc, các lần sau chỉ mang tên lớp lỗi trong message. Object content vẫn có thể mutable; holder không làm nó deep-immutable. Xem [API `LazyConstant`](https://docs.oracle.com/en/java/javase/27/docs/api/java.base/java/lang/LazyConstant.html).
 - Khác `ScopedValue`: lazy constant là **state ứng dụng**; ScopedValue là **context theo call-chain**.
 
 ---
@@ -317,12 +320,12 @@ int x = list.get(0);  // unbox
 
 ### 5.1 Bẫy — Integer cache & `==` trên wrappers
 
-JLS yêu cầu `Integer.valueOf(i)` (và autobox tương đương) **cache** ít nhất **−128..127**. Ngoài vùng đó có thể là object mới mỗi lần → `==` thất bại dù cùng giá trị số.
+API `Integer.valueOf(int)` bảo đảm cache **−128..127**. JLS bảo đảm identity cho boxing các **constant expression** trong miền nhỏ quy định (boolean, char 0–127, integral −128..127); không quy định mọi boxing động phải cache. Ngoài miền bảo đảm không được dựa vào `==`.
 
 ```java
 Integer a = 100;
 Integer b = 100;
-System.out.println(a == b);      // thường true (trong cache)
+System.out.println(a == b);      // true được bảo đảm cho hai constant expression này
 
 Integer c = 200;
 Integer d = 200;
@@ -365,7 +368,7 @@ int[][] jagged = { {1}, {2, 3} };
 ```
 
 - `length` là field final; `Cloneable`, `Serializable`.
-- Tiện ích: `Arrays`, `System.arraycopy`, `Objects`, `java.util.stream.Arrays.stream`.
+- Tiện ích: `java.util.Arrays` (`Arrays.stream`, `equals`, `deepEquals`), `System.arraycopy`, `Objects`.
 - Không có `Span<T>` ngôn ngữ như C#; dùng `ByteBuffer`, array + offset/length, hoặc FFM `MemorySegment` khi gần native.
 
 ### 6.1 Bẫy — Array covariance & `ArrayStoreException`
@@ -412,7 +415,7 @@ khi có `java.util.concurrent`), `clone` (protected, dễ sai — ưu tiên copy
 - Immutable; literal vào pool; `+` biên dịch thành `StringBuilder`/`StringConcatFactory`.
 - So sánh nội dung: `equals` / `contentEquals`; không dùng `==` trừ khi cố ý intern.
 - Text blocks (Java 15+): `""" ... """` — xem [literals.md](literals.md).
-- **String templates** (`STR."…\{x}"`) từng preview (21–23) rồi **rút lại** — **không** có trong Java 27.
+- **String templates** (`STR."…\{x}"`) từng preview ở **21–22**, bị rút khỏi **23**, **không** có trong Java 27.
   Dùng `formatted()`, `MessageFormat`, text block, hoặc `StringBuilder`.
 
 ```java
@@ -438,7 +441,7 @@ Optional<String> opt = Optional.ofNullable(s);
 - Không có NRT compiler built-in như C# nullable reference types; dùng **Optional**, checker frameworks
   (`@Nullable`/`@NonNull` — JSpecify, Checker Framework), hoặc discipline + `Objects.requireNonNull`.
 
-**`void`**: kiểu trả về method “không giá trị”. **`Void`**: reference type placeholder (thường `null`), dùng generic
+**`void`**: chỉ định method không trả giá trị, không thuộc 8 primitive types và không dùng làm kiểu biến. **`Void`**: reference type placeholder (thường `null`), dùng generic
 `Callable<Void>`.
 
 **`var`** (Java 10+): suy luận kiểu **local** từ initializer — vẫn static typing.
@@ -488,8 +491,8 @@ List<String> names = new ArrayList<>();
 Map<String, List<Integer>> index = new HashMap<>();
 ```
 
-- Type parameters tồn tại chủ yếu ở **compile-time**; JVM xóa (erasure) về raw/`Object`/bound.
-- Không tạo `new T()`, không `instanceof List<String>` (chỉ `List`), không mảng `new T[]` an toàn hoàn toàn.
+- Erasure ánh xạ parameterized type về raw type, type variable về leftmost bound (mặc định `Object`). Generic signatures có thể còn trong class-file metadata cho reflection.
+- Không tạo `new T()` hoặc `new T[]`; với một `Object`, không kiểm tra `instanceof List<String>` do không có runtime element type. Dùng `instanceof List<?>` để kiểm tra list, rồi kiểm tra phần tử nếu cần.
 - Bounded: `T extends Number & Comparable<T>`; variance qua wildcard: `? extends` / `? super` (PECS).
 - API collections & cheat sheet chọn cấu trúc → [collections-generics.md](collections-generics.md).
 
@@ -532,7 +535,6 @@ Compiler gán mỗi lần xuất hiện wildcard một **capture** ẩn (`CAP#1`
 List<?> list = new ArrayList<String>();
 // list.add(list.get(0)); // lỗi: capture không chứng minh được phần tử khớp
 
-@SuppressWarnings("unchecked")
 static <T> void swapHelper(List<T> list, int i, int j) {
     T tmp = list.get(i);
     list.set(i, list.get(j));
@@ -558,7 +560,7 @@ raw.add(1);
 // String s = strings.get(0);        // ClassCastException lúc chạy
 ```
 
-Varags generic tạo mảng `T[]` bị erasure → cảnh báo unchecked:
+Varargs có non-reifiable element type có thể tạo mảng sau erasure → cảnh báo unchecked:
 
 ```java
 @SafeVarargs
@@ -587,7 +589,7 @@ Ba lớp so sánh dễ lẫn:
 
 | Cơ chế | Ý nghĩa | Dùng khi |
 |---|---|---|
-| `==` / `!=` | Primitive: bằng giá trị. Reference: **cùng object** (identity), trừ khi cả hai unbox | Identity, enum constants, `null` check |
+| `==` / `!=` | Hai reference: **identity**, không tự unbox hai wrappers. Wrapper với primitive số/boolean tương thích: unbox rồi so giá trị (có thể NPE) | Identity, enum constants, `null` check |
 | `equals` | Equality ngữ nghĩa (override trên class) | Set/Map key, logic nghiệp vụ |
 | `compareTo` / `Comparator` | Thứ tự toàn phần (`Comparable`) | Sort, `TreeMap`/`TreeSet` |
 
@@ -626,7 +628,7 @@ sorted.sort(Comparator.comparingInt(String::length));
 
 ## 11. Records, sealed, enums (trong bức tranh kiểu)
 
-**Record** — carrier dữ liệu bất biến, `equals`/`hashCode`/`toString` sinh sẵn:
+**Record** — carrier dữ liệu **shallowly immutable**, `equals`/`hashCode`/`toString` sinh sẵn:
 
 ```java
 public record Point(int x, int y) {}
@@ -700,7 +702,7 @@ double area(Shape shape) {
 static String describe(Object value) {
     return switch (value) {
         case Integer i when i > 0 -> "pos int";
-        case int i when i < 0 -> "neg int (unbox + pattern)"; // minh họa ý tưởng JEP 532
+        case int i when i < 0 -> "neg int (Integer -> int)";
         case double d -> "double " + d;
         case null -> "null";
         default -> "other";
@@ -714,6 +716,7 @@ static boolean fitsByte(int n) {
 ```
 
 - Mục tiêu: thay cast hẹp “câm” (`(byte) n`) bằng kiểm tra **exact** trong pattern.
+- Static type quyết định conversion: với `Object value = 42`, `value instanceof int` khớp `Integer`, còn `value instanceof byte` không khớp. Với `int n = 42`, `n instanceof byte` kiểm tra range và cho `true`.
 - Production: coi là opt-in; API public tránh phụ thuộc preview trừ khi team chấp nhận đổi qua các JDK tiếp theo.
 
 ---
@@ -732,7 +735,7 @@ Number n = 3.14;
 double d = n.doubleValue();
 ```
 
-- Widening an toàn (theo bảng chuyển đổi JLS); narrowing có thể mất dữ liệu/`char` unsigned-ish semantics.
+- Widening không ném lỗi nhưng `int`/`long` sang floating-point có thể mất precision; narrowing cũng có thể mất range. `char` là số nguyên không dấu 16-bit.
 - Reference cast lên/xuống hệ phân cấp; interface cast hợp lệ nếu runtime type implements.
 - `String` ↔ số: `Integer.parseInt`, `Double.parseDouble`, `String.valueOf` — không cast trực tiếp.
 - Compound assignment (`+=`…) có implicit narrowing cast — bẫy cổ điển; xem [operators.md](operators.md).
@@ -742,9 +745,9 @@ double d = n.doubleValue();
 **Widening** (implicit, không mất range theo JLS — `int`→`float`/`long`→`double` có thể mất *precision*):
 
 ```text
-byte  → short → int → long → float → double
-         ↑
-        char  → int → ...
+byte → short → int → long → float → double
+               ↑
+              char
 ```
 
 | Từ ↓ / Sang → | byte | short | char | int | long | float | double |
@@ -762,7 +765,7 @@ byte  → short → int → long → float → double
 ```java
 int big = 16_777_217;   // > 2^24
 float f = big;          // widening hợp lệ — nhưng f có thể không còn đúng big
-long x = (long) 1e20;   // narrowing từ double literal qua context — kiểm tra tràn
+long x = (long) 1e20;   // Long.MAX_VALUE: floating -> integer clamp, không ném overflow
 
 byte b = 1;
 // b = b + 1;            // lỗi: b+1 là int
@@ -770,7 +773,8 @@ b += 1;                  // OK — compound assignment ngầm cast về byte
 ```
 
 - `boolean` **không** chuyển sang/từ số bằng cast.
-- Boxing + narrowing: `(byte) (Integer) obj` cần unbox trước / sau theo thứ tự rõ ràng.
+- Với `Object obj`, thu hẹp qua unbox tường minh: `(byte) ((Integer) obj).intValue()`; không gộp reference narrowing + unboxing + primitive narrowing vào cast `(byte) (Integer) obj`.
+- Floating → integer: `NaN` thành 0, ngoài range clamp về min/max của `int`/`long`, rồi có thể narrow tiếp sang `byte`/`short`/`char`; phần thập phân bị bỏ về 0.
 - Prefer `Math.toIntExact` / `*Exact` khi cần bắt tràn thay vì cắt im lặng.
 
 ---
@@ -785,7 +789,7 @@ Class<?> anon = list.getClass();          // có thể là ArrayList
 Type gen = List.class.getTypeParameters()[0]; // E — type variable
 ```
 
-**Erasure** → `List<String>` và `List<Integer>` cùng raw `List` lúc runtime. Lấy tham số generic còn lại qua
+**Erasure** → hai `ArrayList<String>` và `ArrayList<Integer>` có cùng runtime class `ArrayList`; `List` là interface khai báo, không phải class thực của mọi list. Lấy tham số generic còn lại qua
 **super type token** (pattern Guava `TypeToken` / TypeTools):
 
 ```java
@@ -818,7 +822,7 @@ String out = (String) mh.invokeExact("a", "b"); // "ab"
 
 - `Lookup` tôn trọng access control của caller class.
 - Dùng trong lambdas metafactory, JSON libs, bridges — không phải công cụ hàng ngày cho app code.
-- Reflect chậm và mất an toàn biên dịch — ưu tiên pattern matching / sealed / generics ở biên domain.
+- Reflection/MethodHandles cần xử lý lỗi lookup/access và kiểm tra kiểu runtime; hiệu năng phụ thuộc call site/JIT. `invokeExact` khai báo `throws Throwable`; caller phải xử lý hoặc khai báo. Ưu tiên pattern matching / sealed / generics ở biên domain khi đủ.
 
 ---
 
@@ -853,7 +857,7 @@ và chấp nhận breaking changes. Theo dõi OpenJDK Valhalla khi cần cập n
 
 ```text
 Types
-├── Primitive (8) + void
+├── Primitive (8); void là chỉ định method không trả giá trị
 ├── Reference: class / interface / record / enum / array / type var
 ├── Generics: erasure + wildcards (PECS) + capture
 └── Patterns: instanceof / switch (+ preview primitive patterns)
@@ -907,12 +911,12 @@ Values
 | **12–13** | Switch expression preview → nền cho pattern sau này |
 | **14** | `instanceof` pattern matching *(preview)*; records *(preview)*; useful NPE |
 | **15** | Text blocks final; records / sealed / pattern `instanceof` *(preview tiếp)* |
-| **16** | Records **final**; pattern `instanceof` **final**; sealed *(preview)*; `invokeExact` records |
+| **16** | Records **final**; pattern `instanceof` **final**; sealed *(preview)* |
 | **17 LTS** | Sealed classes **final**; pattern switch *(preview)* |
-| **18–19** | Pattern switch / record patterns tiếp tục preview |
+| **18–19** | Pattern switch tiếp tục preview; record patterns bắt đầu preview ở 19 |
 | **20** | Record patterns / pattern switch tiến hóa |
 | **21 LTS** | Pattern matching for `switch` **final**; record patterns **final**; unnamed patterns/vars *(preview)*; sequenced collections |
-| **22** | Unnamed variables & patterns **final**; string templates *(preview — **rút lại**, không có ở 25+)* |
+| **22** | Unnamed variables & patterns **final**; string templates **Second Preview**, rút khỏi 23+ |
 | **23–24** | Primitive types in patterns *(preview, JEP 455/488)*; markdown docs… |
 | **25 LTS** | Flexible constructors **final** (JEP 513); Scoped Values **final**; compact source/main; module import; Compact Object Headers **product** (JEP 519, chưa default); primitive patterns *(preview JEP 507)* |
 | **26** | JEP 500: cảnh báo mutate `final` qua reflection; HTTP/3 `HttpClient`; Lazy Constants *(preview, ex Stable Values)*; primitive patterns *(preview JEP 530)* |

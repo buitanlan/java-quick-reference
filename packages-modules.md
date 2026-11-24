@@ -40,7 +40,7 @@ public class UserService {
 
 - `package` phải là **câu lệnh đầu** trong file (trước mọi `import`; sau comments / annotations gắn package nếu có).
 - Tên package theo convention reverse-DNS: `com.company.product.module`.
-- Cấu trúc thư mục **phải khớp** package: `com/example/app/UserService.java`.
+- Theo quy ước và cơ chế source lookup/build tools, thư mục khớp package: `com/example/app/UserService.java`. `javac` được chỉ định file trực tiếp có thể đọc source ở vị trí khác; binary name vẫn do `package` quyết định.
 - Thành viên **package-private** (không modifier): visible trong cùng package; trong cùng named module không cần `exports`.
 
 Annotation gắn package nằm trong `package-info.java`:
@@ -68,7 +68,7 @@ public class Scratch {
 
 - Hợp lệ cho demo / compact source; **không** dùng trong thư viện hay codebase lớn.
 - Class trong named package **không** được import type từ default package.
-- JPMS: named module cũng không nên dựa vào default package.
+- JPMS: unnamed package không được phép trong named module.
 
 ---
 
@@ -160,8 +160,8 @@ Khi nào dùng:
 
 | | Unnamed module (classpath) | Named modules (module path) |
 |---|---|---|
-| Đọc | Đọc hầu hết classpath | Chỉ theo `requires` + exports |
-| Export | Mọi package coi như exported tới unnamed | Chỉ package `exports` |
+| Đọc | Đọc các module đã resolved và các unnamed modules | Explicit module đọc theo `requires` / readability bổ sung; automatic module có quy tắc rộng hơn |
+| Export | Mọi package exported/open cho mọi module | Explicit module theo `exports`/`opens`; automatic module export/open mọi package |
 | Split packages | Nguy hiểm, khó đoán | **Cấm** giữa các modules |
 | Dùng khi | App legacy, nhiều stack Spring Boot điển hình | Thư viện JDK-style, tool JDK, app chuẩn hóa module |
 
@@ -259,7 +259,7 @@ Automatic-Module-Name: com.example.legacy
 | Khái niệm | Hành vi |
 |-----------|---------|
 | Automatic module | Đọc hầu hết module khác; **exports mọi package** — “nới lỏng” để migrate |
-| Unnamed module | Tất cả classpath JARs — đọc được named modules; named **không** `requires` unnamed (một chiều) |
+| Unnamed module | Một unnamed module cho mỗi class loader; đọc named modules đã resolved. Explicit named module không thể `requires` unnamed; automatic modules hoặc `--add-reads M=ALL-UNNAMED` có thể đọc unnamed |
 | Ổn định tên | **Luôn** set `Automatic-Module-Name` trước khi publish JAR lên module path — tránh đổi tên theo filename |
 
 Chiến lược migrate:
@@ -304,27 +304,27 @@ src/main/java/com/example/app/...
   <groupId>org.apache.maven.plugins</groupId>
   <artifactId>maven-compiler-plugin</artifactId>
   <configuration>
-    <release>25</release>
+    <release>27</release>
   </configuration>
 </plugin>
 ```
 
-- Dependencies mặc định thường lên **classpath** (unnamed). Muốn module path: `maven-compiler-plugin` /
-  `maven-jar-plugin` + plugin modulepath (tùy phiên bản; nhiều project chỉ cần `module-info` cho artifact mình,
-  còn deps vẫn classpath).
+- Với source có `module-info.java`, Maven Compiler Plugin hỗ trợ bố trí modular dependencies trên module path; không cần một plugin “modulepath” riêng cho trường hợp thông thường. Pin phiên bản plugin phù hợp JDK/toolchain. Dependencies cần được named module đọc phải là explicit/automatic modules hoặc cần bridge `--add-reads` có chủ đích — xem [Maven Compiler Plugin](https://maven.apache.org/plugins/maven-compiler-plugin/examples/module-info.html).
 - Test code: đôi khi cần `opens` tới test framework hoặc chạy test trên classpath.
 
 ### Gradle (phác thảo)
 
 ```kotlin
+plugins { `java-library` }
+
 java {
-    toolchain { languageVersion.set(JavaLanguageVersion.of(25)) }
+    toolchain { languageVersion.set(JavaLanguageVersion.of(27)) }
+    modularity.inferModulePath.set(true)
 }
 // module-info.java ở src/main/java
-// org.gradle.experimental / java-library + modularity DSL tùy phiên bản Gradle
 ```
 
-- Gradle 7+ hỗ trợ JPMS tốt hơn; vẫn kiểm tra artifact lên `modularity.inferModulePath` / cấu hình thủ công.
+- Gradle suy luận module path cho JAR có `module-info.class` hoặc `Automatic-Module-Name`; plain JAR khác có thể ở lại classpath. Chọn Gradle hỗ trợ toolchain JDK 27; cấu hình JPMS thuộc DSL `java.modularity`, không còn dùng thiết lập experimental cũ — xem [Gradle Java Library Plugin](https://docs.gradle.org/current/userguide/java_library_plugin.html#sec:java_library_modular).
 - **Quy tắc thực dụng:** app Spring / Jakarta điển hình → classpath; CLI / JDK tool / lib muốn strong encapsulation → module path + `module-info`.
 
 Gợi ý:
@@ -395,7 +395,7 @@ List<Greeter> all = loader.stream().map(ServiceLoader.Provider::get).toList();
 
 | Bẫy | Chi tiết |
 |-----|----------|
-| Thiếu `uses` | Trên module path, consumer **phải** `uses` SPI — thiếu → không thấy provider |
+| Thiếu `uses` | Explicit named consumer gọi `ServiceLoader.load` phải khai báo `uses SPI`; thiếu có thể ném `ServiceConfigurationError`, không chỉ trả rỗng |
 | Thiếu `provides` | Provider module phải `provides … with …`; chỉ có class impl không đủ |
 | Classpath vs module | Classpath dùng `META-INF/services/<SPI>`; module path ưu tiên `module-info` — đừng giả định một bên đủ cho mọi launch mode |
 | Provider ctor | `ServiceLoader` cần public no-arg constructor (hoặc provider method / factory theo quy tắc); ctor private → fail lúc load |
@@ -423,8 +423,8 @@ Best practice SPI: API module (interface + `exports`) ← consumer `uses` / prov
 6. **Automatic module đổi tên** — thiếu `Automatic-Module-Name` → `requires` gãy khi đổi tên file.
 7. **`import module` ≠ dependency** — vẫn cần `requires` / deps build; chỉ rút gọn tên.
 8. **Ambiguous simple name** sau `import module` — compile error; giải bằng import tường minh.
-9. **ServiceLoader “im lặng” rỗng** — thiếu `uses`/`provides`/`META-INF/services` hoặc sai ClassLoader; luôn kiểm tra `findFirst().isEmpty()`.
-11. **`--source`/`--target` không khóa API** — dùng `--release`; preview quên bật lúc `java` → lỗi runtime.
+9. **ServiceLoader không tìm thấy provider** — thiếu `provides`/`META-INF/services` hoặc sai ClassLoader có thể trả rỗng; thiếu `uses` ở explicit named consumer có thể ném `ServiceConfigurationError`. Phân biệt hai trường hợp khi chẩn đoán.
+10. **`--source`/`--target` không khóa API** — dùng `--release`; preview quên bật lúc `java` → lỗi runtime.
 
 ---
 

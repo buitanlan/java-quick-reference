@@ -2,11 +2,15 @@
 
 Bộ tài liệu tham chiếu **in-depth / advanced** cho ngôn ngữ Java, nhắm **JDK 27** (GA 15/9/2026). Không phải giáo trình nhập môn: các khái niệm được trình bày dạng tham khảo nhanh kèm chi tiết nâng cao (semantics, JEP/version gates, pitfalls). Nếu chưa biết Java, bắt đầu bằng The Java Tutorials bên dưới, rồi dùng bộ này khi cần tra cứu sâu hơn.
 
-LTS gần nhất vẫn là **JDK 25**; 27 là feature release. Language level / preview features phụ thuộc toolchain và `--enable-preview` (hoặc `--source`/`--release` của `javac`). Nội dung các file ghi rõ khi tính năng là final, preview, incubator, hoặc runtime-only (JVM flags).
+LTS gần nhất vẫn là **JDK 25**; 27 là feature release. `--release` chọn mức ngôn ngữ, bytecode và API nền tảng; `--enable-preview` bật thêm tính năng preview của **chính phiên bản JDK đang dùng**, không thay thế `--release`/`--source`. Code dùng preview phải được chạy bằng cùng major JDK và bật preview lúc chạy. Nội dung các file phân biệt final, preview, incubator và tùy chọn runtime của JVM.
+
+**Quy ước ví dụ:** các đoạn ngắn minh họa độc lập, có thể lược bỏ imports, lớp bao hoặc kiểu nghiệp vụ (`User`, `Response`, …). Đoạn giả mã/cố ý sai được ghi chú riêng; không ghép mọi code block thành một chương trình. Lệnh biên dịch/chạy trong tài liệu chỉ là hướng dẫn sử dụng.
+
+**Rà soát nội dung:** 11/10/2026; đối chiếu JLS và API JDK 27, kiểm tra tĩnh Markdown và ví dụ, không compile/build hay chạy ví dụ Java.
 
 ---
 
-Tham khảo chính thức: [The Java Tutorials](https://docs.oracle.com/javase/tutorial/) · [Java Language Specification](https://docs.oracle.com/javase/specs/) · [JDK 27 JEPs](https://openjdk.org/projects/jdk/27/) · [API docs](https://docs.oracle.com/en/java/javase/27/docs/api/)
+Tham khảo chính thức: [Dev.java Learn](https://dev.java/learn/) · [The Java Tutorials (JDK 8)](https://docs.oracle.com/javase/tutorial/) · [JLS 27](https://docs.oracle.com/javase/specs/jls/se27/html/index.html) · [JDK 27 JEPs](https://openjdk.org/projects/jdk/27/) · [API docs](https://docs.oracle.com/en/java/javase/27/docs/api/) · [Thay đổi ngôn ngữ theo phiên bản](https://docs.oracle.com/en/java/javase/27/language/java-language-changes-summary.html)
 
 ---
 

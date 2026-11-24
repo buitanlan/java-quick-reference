@@ -56,15 +56,13 @@ CompletableFuture<String> body = CompletableFuture.supplyAsync(() -> fetch(), ex
 ## 2. `Future` & `ExecutorService`
 
 ```java
-ExecutorService exec = Executors.newFixedThreadPool(8);
-Future<Integer> f = exec.submit(() -> compute());
-
-// blocking get
-Integer v = f.get();
-Integer v2 = f.get(1, TimeUnit.SECONDS);
-
-f.cancel(true);           // mayInterruptIfRunning
-boolean done = f.isDone();
+try (ExecutorService exec = Executors.newFixedThreadPool(8)) {
+    Future<Integer> f = exec.submit(() -> compute());
+    // Chọn timed get nếu cần giới hạn thời gian chờ.
+    Integer v = f.get(1, TimeUnit.SECONDS);
+    boolean done = f.isDone();
+    // Khi cần hủy: f.cancel(true); // yêu cầu interrupt nếu đang chạy
+}
 ```
 
 Hạn chế của `Future` thuần:
@@ -85,6 +83,8 @@ try (var exec = Executors.newVirtualThreadPerTaskExecutor()) {
 
 Chi tiết pool pitfalls (unbounded queue, shutdown, `get` + interrupt): [threading.md](threading.md) §4.4.
 
+`ExecutorService.close()` chờ task kết thúc; timed `get()` không tự hủy task. Khi timeout, cần quyết định `cancel(true)` và đặt timeout tại I/O gốc, nếu không thoát block `try` vẫn có thể chờ lâu.
+
 ---
 
 ## 3. `CompletableFuture` patterns
@@ -103,7 +103,7 @@ String v = cf.join();   // unchecked CompletionException
 String v2 = cf.get();   // checked ExecutionException / InterruptedException
 ```
 
-- `supplyAsync` / `runAsync` **không** chỉ định executor → **`ForkJoinPool.commonPool()`** — xem pitfall §3.5.
+- `supplyAsync` / `runAsync` **không** chỉ định executor → **`ForkJoinPool.commonPool()`** (nếu parallelism < 2 thì tạo thread mới cho mỗi task) — xem pitfall §3.5.
 
 ### 3.2 Pipeline: `thenApply` / `thenCompose` / `thenCombine`
 
@@ -153,9 +153,9 @@ cf.exceptionally(ex -> "fallback");
 cf.exceptionallyAsync(ex -> recover(ex), exec);
 
 cf.handle((val, ex) -> ex == null ? val : recover(ex));
-cf.whenComplete((val, ex) -> log(val, ex)); // quan sát, không thay kết quả
+cf.whenComplete((val, ex) -> log(val, ex)); // quan sát; callback ném lỗi có thể làm stage trả về thất bại
 
-cf.thenApply(this::parse)
+cf.thenApply(text -> Optional.of(parse(text)))
   .exceptionally(ex -> {
       log(ex);
       return Optional.<Data>empty();
@@ -216,7 +216,7 @@ CompletableFuture<String> withDefault =
         fetchAsync().completeOnTimeout("fallback", 2, TimeUnit.SECONDS);
 ```
 
-- `orTimeout` / `completeOnTimeout` **không** tự interrupt công việc gốc trong mọi trường hợp — chỉ hoàn thành CF. Kết hợp `whenComplete` + hủy resource / `Future.cancel` nếu task còn handle.
+- `orTimeout` / `completeOnTimeout` trả về **chính CF nhận lời gọi**, không tạo bản timeout độc lập, và không tự interrupt task của `supplyAsync`. Dùng `cf.copy().orTimeout(...)` khi chỉ muốn timeout một nhánh quan sát; hủy công việc gốc qua task/resource handle riêng.
 - HTTP client: luôn set **connect/request timeout** ở client — đừng chỉ dựa CF timeout.
 
 ### 4.2 Cancel `Future` / CF
@@ -225,16 +225,17 @@ CompletableFuture<String> withDefault =
 Future<?> f = exec.submit(() -> work());
 f.cancel(true); // mayInterruptIfRunning = true → interrupt nếu đang chạy
 
-CompletableFuture<String> cf = supplyAsync(...);
+CompletableFuture<String> cf = CompletableFuture.supplyAsync(this::fetch, exec);
 boolean ok = cf.cancel(true); // complete exceptionally bằng CancellationException
 ```
 
 | Hành vi | Ý nghĩa |
 |---------|---------|
-| `cancel(false)` | Chỉ bỏ nếu chưa chạy; không interrupt |
-| `cancel(true)` | Cố interrupt nếu đang chạy — task phải tôn trọng interrupt |
-| CF đã hoàn thành | `cancel` trả `false` |
-| Downstream CF | Cancel upstream **không** luôn hủy cả pipeline — hủy tường minh từng stage / dùng structured scope |
+| `Future.cancel(false)` | Có thể đánh dấu canceled cả khi task đang chạy, nhưng không yêu cầu interrupt; computation có thể tiếp tục |
+| `Future.cancel(true)` | Yêu cầu interrupt nếu implementation hỗ trợ — task phải hợp tác |
+| `CompletableFuture.cancel(...)` | `mayInterruptIfRunning` **không có tác dụng** với CF thông thường; task `supplyAsync` có thể tiếp tục chạy |
+| CF đã có kết quả/lỗi | Cancel không thay kết quả; gọi lại `cancel` trên CF đã canceled có thể vẫn trả `true` |
+| Downstream CF | Stage phụ thuộc chưa hoàn tất có thể thất bại với `CompletionException` bọc `CancellationException`; không tự dừng mọi computation liên quan |
 
 ### 4.3 Pattern: timeout + hủy sibling
 
@@ -254,6 +255,8 @@ CompletableFuture<Pair<A, B>> both =
 ```
 
 Trên Java 27 với preview: `StructuredTaskScope` làm cancel sibling **theo policy** — ít lỗi hơn tự quản CF — [threading.md](threading.md) §9.
+
+Trong ví dụ trên, `fa.cancel(true)`/`fb.cancel(true)` chỉ hủy **kết quả CF**, không bảo đảm dừng I/O. `thenCombine` cũng không phải fail-fast: khi một nhánh lỗi, nó có thể vẫn đợi nhánh còn lại. Muốn dừng task thật, giữ `Future`/resource handle hoặc dùng scope có policy hủy.
 
 ### 4.4 `get` + interrupt
 
@@ -304,12 +307,13 @@ Khi nào vẫn cần `CompletableFuture`?
 
 **Ý tưởng**: nhóm subtasks đồng thời như **một đơn vị** — lifetime lexically scoped; lỗi / hủy lan đúng cây task; dễ quan sát hơn `ExecutorService` “rời”.
 
-API: mở scope bằng **static factory** `StructuredTaskScope.open(...)` (từ 25). Java 27: `Joiner` có type parameter exception `R_X`; `timeout()` thay `onTimeout()`.
+API: mở scope bằng **static factory** `StructuredTaskScope.open(...)` (từ 25). Java 27: `Joiner` có type parameter exception `R_X`; `timeout()` thay `onTimeout()`. Theo [API JDK 27](https://docs.oracle.com/en/java/javase/27/docs/api/java.base/java/util/concurrent/StructuredTaskScope.html), default `open()` cho `join()` ném checked `ExecutionException` khi subtask thất bại.
 
 ```java
-// javac/java --enable-preview --release 27
+// Biên dịch: javac --enable-preview --release 27 ...
+// Chạy:      java --enable-preview ...
 
-Response handle() throws InterruptedException {
+Response handle() throws InterruptedException, ExecutionException {
     try (var scope = StructuredTaskScope.open()) {
         StructuredTaskScope.Subtask<String> user =
                 scope.fork(() -> findUser());
@@ -331,8 +335,9 @@ Response handle() throws InterruptedException {
 - Kết hợp tốt với **virtual threads** + **Scoped Values** (child inherit bindings).
 
 ```java
-// Pseudocode — tham khảo JEP 533 / javadoc bản JDK 27
-// try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) { ... }
+// Joiner: import java.util.concurrent.StructuredTaskScope.Joiner;
+// open() dùng Joiner.awaitAllSuccessfulOrThrow(); join() trả Void.
+// Với các task cùng kiểu T: Joiner.<T>allSuccessfulOrThrow() cho join() trả List<T>.
 ```
 
 So với `CompletableFuture.allOf`:
@@ -375,7 +380,7 @@ Khi **không** cần:
 - Chỉ wrap blocking call bằng `Mono.fromCallable` trên elastic pool → thường VT thẳng đơn giản hơn.
 
 ```java
-// Minh họa SPI JDK — hiếm khi viết tay; thư viện implement Flow
+// Khung SPI minh họa; chưa phải Publisher đáp ứng đầy đủ Flow contract.
 Flow.Publisher<Item> publisher = subscriber -> {
     subscriber.onSubscribe(new Flow.Subscription() {
         public void request(long n) { /* phát tối đa n item */ }
@@ -383,6 +388,8 @@ Flow.Publisher<Item> publisher = subscriber -> {
     });
 };
 ```
+
+Implementation thực tế phải cộng dồn demand, báo `onError` với `IllegalArgumentException` khi `request(n <= 0)`, tuần tự hóa signals và xử lý cancellation/terminal state đúng contract; ưu tiên thư viện đã thực hiện các quy tắc này. Xem [Flow](https://docs.oracle.com/en/java/javase/27/docs/api/java.base/java/util/concurrent/Flow.html) và [Subscription](https://docs.oracle.com/en/java/javase/27/docs/api/java.base/java/util/concurrent/Flow.Subscription.html).
 
 > Stack Java 27 điển hình: **VT + structured concurrency (khi final / preview OK)**; reactive khi hệ sinh thái / backpressure thật sự cần.
 
@@ -422,13 +429,13 @@ Flow.Publisher<Item> publisher = subscriber -> {
 
 - [ ] Blocking I/O trên CF → **luôn** truyền executor (VT per-task hoặc pool I/O); tránh commonPool.
 - [ ] Timeout kép: **HTTP/DB client timeout** + `orTimeout` / `get(timeout)` ở biên.
-- [ ] `join()` trên VT OK; tránh `.get()` giữ platform thread container cũ quá lâu.
+- [ ] Chọn `get()` khi cần chờ có thể interrupt; `join()` không ném `InterruptedException` dù chạy trên VT.
 - [ ] Unwrap `CompletionException`/`ExecutionException` trước khi map domain error.
 - [ ] `exceptionally` / `handle`: log + metrics; đừng nuốt im.
 - [ ] Hủy xuyên suốt: interrupt, `Future.cancel(true)`, Joiner của `StructuredTaskScope`.
 - [ ] `anyOf`/race: hủy nhánh thua hoặc dùng structured “any successful”.
 - [ ] Test load: connection pool / rate limit hẹp hơn số VT.
-- [ ] Parallel CPU: [streams.md](streams.md) / semiaphore — đừng nhồi blocking vào commonPool.
+- [ ] Parallel CPU: [streams.md](streams.md) / semaphore — đừng nhồi blocking vào commonPool.
 - [ ] Theo dõi JEP Structured Concurrency đến **final** trước khi khóa API nội bộ quanh nó.
 
 ### Cheat sheet
@@ -439,7 +446,7 @@ Flow.Publisher<Item> publisher = subscriber -> {
 | `thenCompose` | flatMap CF |
 | `thenCombine` / `allOf` | Fan-in |
 | `orTimeout` / `completeOnTimeout` | Deadline phía CF |
-| `cancel(true)` | Hủy + interrupt nếu đang chạy |
+| `Future.cancel(true)` / `CF.cancel(true)` | Future có thể yêu cầu interrupt; CF thông thường chỉ hủy kết quả |
 | `exceptionally` / `handle` | Recover / map lỗi |
 | VT executor | “Async” bằng blocking đơn giản |
 | `StructuredTaskScope` | Fan-out có cấu trúc (preview) |
@@ -453,6 +460,7 @@ Flow.Publisher<Item> publisher = subscriber -> {
 | 21 | Virtual threads final — blocking async thực dụng |
 | 21–24 | Structured Concurrency preview nhiều vòng |
 | **25 LTS** | JEP 505 Fifth Preview; Scoped Values final — [threading.md](threading.md) |
+| **26** | JEP 525 Sixth Preview |
 | **27** | JEP 533 Seventh Preview |
 
 ---

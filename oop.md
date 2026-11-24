@@ -128,7 +128,7 @@ public final class MathUtil {
 
 - `static` method/field: gọi qua tên class (`MathUtil.clamp(...)`).
 - Static context **không** truy cập `this` / instance members trực tiếp.
-- Static initializer `{ ... }` chạy một lần khi class được load — chi tiết thứ tự: mục [2](#2-thứ-tự-khởi-tạo-initialization-order).
+- Static initializer `static { ... }` chạy một lần khi class được **initialize**, có thể muộn hơn lúc load — chi tiết thứ tự: mục [2](#2-thứ-tự-khởi-tạo-initialization-order).
 
 ```java
 static {
@@ -165,6 +165,11 @@ Từ **Java 25**, constructor được chia thành:
 3. **Epilogue** — phần còn lại sau lời gọi đó
 
 ```java
+class Point {
+    final int x, y;
+    Point(int x, int y) { this.x = x; this.y = y; }
+}
+
 public class PositivePoint extends Point {
     public PositivePoint(int x, int y) {
         // Prologue: được phép — validate / tính toán ARGUMENTS
@@ -218,7 +223,7 @@ public class Child extends SafeBase {
 Khi `new Sub(...)`:
 
 1. Cấp phát object + zero/null defaults cho fields.
-2. Chạy chuỗi ctor từ **superclass → subclass** (sau mỗi `super(...)` return).
+2. Chạy prologue của constructor nếu có, rồi `super(...)`/`this(...)`. Prologue subclass có thể chạy **trước** ctor superclass từ Java 25.
 3. Trong mỗi class (theo thứ tự xuất hiện trong source): **field initializers** + **instance initializer blocks** `{ ... }`, rồi phần còn lại của constructor body (epilogue).
 
 ```java
@@ -226,6 +231,7 @@ class Super {
     int a = print("Super.field");
     { System.out.println("Super.block"); }
     Super() { System.out.println("Super.ctor"); }
+    static int print(String s) { System.out.println(s); return 0; }
 }
 
 class Sub extends Super {
@@ -233,10 +239,6 @@ class Sub extends Super {
     { System.out.println("Sub.block"); }
     Sub() { System.out.println("Sub.ctor"); }
 
-    static int print(String s) {
-        System.out.println(s);
-        return 0;
-    }
 }
 
 // new Sub() in ra:
@@ -264,7 +266,7 @@ class A {
 
 **Bẫy circular static init**: hai class tham chiếu static lẫn nhau → một phía có thể thấy giá trị mặc định (0/`null`) chưa chạy xong initializer.
 
-> **Lưu ý**: Exception trong static initializer → `ExceptionInInitializerError`; class coi như lỗi khởi tạo — lần dùng sau thường `NoClassDefFoundError`.
+> **Lưu ý**: Nếu static initialization thất bại, exception không thuộc `Error` được bọc trong `ExceptionInInitializerError`; `Error` được truyền trực tiếp. Class bị đánh dấu lỗi khởi tạo — lần dùng sau thường `NoClassDefFoundError`.
 
 ### 2.3 Superclass gọi overridable method trong ctor
 
@@ -275,9 +277,9 @@ class Base {
 }
 
 class Derived extends Base {
-    private final String name = "derived";
+    private final String name = new String("derived"); // tránh constant expression được inline
     @Override void hook() {
-        System.out.println(name); // trước JEP 513: thường null (field chưa gán)
+        System.out.println(name); // in null: field initializer chưa chạy, kể cả trên Java 27
     }
 }
 ```
@@ -345,6 +347,7 @@ public final class Money { /* không subclass được */ }
 public class Account {
     public final void freeze() { /* subclass không override được */ }
     private final String id;
+    public Account(String id) { this.id = Objects.requireNonNull(id); }
 }
 ```
 
@@ -375,8 +378,8 @@ double eval(Expr e) {
 ```
 
 - `sealed` + `permits`: whitelist subtype.
-- Subtype phải: `final`, `sealed`, hoặc `non-sealed` (mở lại cây kế thừa).
-- Subtype thường cùng module / cùng package (quy tắc accessibility).
+- Direct subclass phải là `final`, `sealed` hoặc `non-sealed`; subinterface dùng `sealed`/`non-sealed`. Record ngầm `final`, enum có quy tắc ngầm riêng.
+- Trong named module, permitted direct subtypes phải cùng module (có thể khác package); trong unnamed module, phải cùng package.
 - Bức tranh kiểu / pattern matching: [typesystem.md](typesystem.md).
 
 ---
@@ -518,7 +521,7 @@ Quy tắc tóm tắt:
 |------------|---------|
 | Một default, không abstract xung đột | Dùng default đó |
 | Class concrete method vs interface default | **Class thắng** |
-| Hai interface default cùng signature | Phải override + `X.super.m()` |
+| Hai interface không liên quan có default cùng signature | Phải override để giải quyết; có thể gọi `X.super.m()` hoặc viết implementation mới |
 | Sub-interface override default của super-interface | Sub-interface thắng cho implementor |
 
 **Bẫy**: quên override khi thêm default mới vào interface thứ hai → break compile của implementor (cố ý — an toàn hơn silent pick).
@@ -580,7 +583,7 @@ public class OrderService {
 
 - Local / nested records: tiện DTO tạm, intermediate trong stream pipeline.
 - Nested record **không** phải inner class — không capture enclosing instance.
-- Không khai báo instance field ngoài components; không thêm native methods tùy tiện theo JLS record rules.
+- Không khai báo instance field ngoài components, instance initializer block hoặc method `native`.
 - Có thể khai báo nested enum/interface/class tĩnh bên trong record.
 
 ### 6.4 Reflection (`RecordComponent`) & serialization
@@ -595,7 +598,7 @@ Point.class.isRecord(); // true
 ```
 
 - `Class.isRecord()`, `getRecordComponents()` — introspection ổn định hơn đoán field synthetic.
-- Serialization: record serialize theo **canonical constructor** + components (không theo custom `writeObject` kiểu class cũ theo cùng mô hình). Version skew / missing component → lỗi rõ hơn “field lạ bỏ qua”.
+- Record phải `implements Serializable` nếu dùng Java serialization. Khi deserialize, canonical constructor nhận component values; thiếu component nhận default (`0`/`null`), component dư bị bỏ qua. Validation trong constructor có thể khiến deserialize thất bại; `readObject`/`writeObject` riêng của record bị bỏ qua.
 - Framework JSON (Jackson, …) thường map theo accessor tên component — kiểm tra config nếu dùng `getX()` style cũ.
 
 > **Lưu ý**: Record **không thể** mở rộng class khác; muốn hierarchy đóng → `sealed interface` + các record permits (mục 3.4).
@@ -644,7 +647,7 @@ public enum Op {
 
 - Mỗi constant có thể có **class body** riêng (anonymous subclass của enum).
 - Pattern thay `switch` phân tán khi mỗi constant có hành vi khác biệt rõ.
-- Enum vẫn `final` về mặt mở rộng ngoài các constant đã khai báo.
+- Enum không có constant-specific body thì ngầm `final`; có body riêng thì ngầm `sealed`, chỉ cho các anonymous subclass của constant đó. Không được tự viết subclass bên ngoài.
 
 ### 7.3 `EnumSet` / `EnumMap` & switch exhaustiveness
 
@@ -713,8 +716,8 @@ public class Outer {
 |------|---------------------|----------|
 | static nested | Không | Helper gắn namespace class |
 | inner | Có | Cần state outer |
-| local | Có (nếu non-static) | Scope hẹp trong method |
-| anonymous | Có | One-shot (ưu tiên lambda nếu SAM) |
+| local | Có enclosing instance nếu khai báo trong instance context | Scope hẹp trong method; trong static context không có outer instance |
+| anonymous | Tùy ngữ cảnh/capture | One-shot (ưu tiên lambda nếu SAM) |
 
 ### 8.2 Bẫy: inner giữ outer — memory leak
 
@@ -722,18 +725,22 @@ Non-static inner / anonymous / lambda capture giữ reference tới enclosing in
 
 ```java
 public class ListenerHub {
-    private final List<Runnable> listeners = new ArrayList<>();
+    // Registry ngoài object, sống lâu hơn ListenerHub (minh họa đơn luồng).
+    private static final List<Runnable> LISTENERS = new ArrayList<>();
+    private int count;
 
     public void registerLeak() {
         // anonymous inner → giữ ListenerHub.this
-        listeners.add(new Runnable() {
-            @Override public void run() { /* ... */ }
+        LISTENERS.add(new Runnable() {
+            @Override public void run() { count++; } // capture ListenerHub.this
         });
     }
 
     public void registerBetter(Runnable r) {
-        listeners.add(Objects.requireNonNull(r)); // caller kiểm soát lifetime
+        LISTENERS.add(Objects.requireNonNull(r)); // caller kiểm soát capture
     }
+
+    public static void unregister(Runnable r) { LISTENERS.remove(r); }
 
     // Prefer static nested khi không cần outer state
     public static final class Stats {
@@ -742,7 +749,7 @@ public class ListenerHub {
 }
 ```
 
-- Đăng ký listener/callback là inner của Activity/Service/`this` lớn → object ngoài **không GC** được dù UI đã destroy (cùng pattern Android / Swing).
+- Registry còn reachable mà giữ listener capture `this` → object ngoài chưa được GC; cần unregister theo lifecycle. Chu trình object ↔ listener tự nó không gây leak nếu cả cụm không còn reachable.
 - **Prefer static nested** (+ truyền outer tường minh nếu cần) hoặc lambda/method ref tới helper không capture nặng.
 - Serialization inner class cũng kéo outer — thường không serialize inner.
 
@@ -766,8 +773,8 @@ public final class Money {
     private final Currency currency;
 
     public Money(BigDecimal amount, Currency currency) {
-        this.amount = amount;
-        this.currency = currency;
+        this.amount = Objects.requireNonNull(amount);
+        this.currency = Objects.requireNonNull(currency);
     }
 
     @Override
@@ -848,7 +855,7 @@ map.get(List.of("a"));  // cũng không tìm thấy
 ```java
 var a = new BigDecimal("1.0");
 var b = new BigDecimal("1.00");
-a.compareTo(b) == 0; // true — cùng giá trị số
+boolean sameValue = a.compareTo(b) == 0; // true — cùng giá trị số
 a.equals(b);         // false — khác scale
 ```
 

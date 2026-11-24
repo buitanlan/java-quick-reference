@@ -101,7 +101,7 @@ public class Logger {
 
 Khi có nhiều method applicable, compiler chọn **most specific** theo phase roughly:
 
-1. **Strict invocation** — không boxing, không varargs.
+1. **Strict invocation** — cho identity/widening conversions, không boxing/unboxing; varargs method có thể được xét như fixed-arity nhận mảng.
 2. **Loose invocation** — cho phép boxing / unboxing / widening.
 3. **Varargs invocation** — phase cuối.
 
@@ -116,7 +116,7 @@ f(1); // chọn f(int) — strict, cụ thể hơn Integer / varargs
 | Tình huống | Kết quả điển hình |
 |------------|-------------------|
 | `f(int)` vs `f(Integer)` với `int` | `f(int)` |
-| `f(int)` vs `f(Integer)` với `Integer` | `f(Integer)` (hoặc unbox → phụ thuộc applicable) |
+| `f(int)` vs `f(Integer)` với `Integer` | `f(Integer)` ở strict phase; không cần unbox |
 | Chỉ còn varargs vs fixed | Fixed thắng nếu khớp |
 | Hai method cùng “cụ thể” | Ambiguous → lỗi compile |
 | Overload `Object` vs `String` với `null` | Thường chọn `String` (cụ thể hơn) — vẫn dễ confuse |
@@ -196,7 +196,7 @@ public void clear() {
 }
 ```
 
-- Mọi nhánh của method non-void phải return hoặc throw.
+- Body method non-void không được hoàn tất bình thường: đường đi kết thúc phải `return` giá trị hoặc `throw`; vòng lặp vô hạn cũng hợp lệ.
 - Có thể trả về subtype (covariant) khi override — mục 9.
 - Expression-bodied kiểu C# `=>` **không** có; dùng block hoặc single `return`.
 
@@ -435,10 +435,10 @@ Muốn “trả nhiều giá trị”: record/`Optional`/holder object, hoặc r
 
 Thứ tự khởi tạo instance (tóm tắt) — chi tiết field/ctor: [oop.md](oop.md) (flexible ctor bodies từ Java 25, JEP 513).
 
-1. Thanh phân static (class init) — một lần / class loader.
-2. Superclass ctor chain.
-3. Instance initializers / field instance của class hiện tại.
-4. Body constructor.
+1. Class initialization nếu cần — một lần cho mỗi runtime class (class + defining loader).
+2. Cấp phát object và gán default cho fields; chạy prologue trước explicit `super(...)`/`this(...)` nếu có (Java 25+).
+3. Constructor chain; sau `super(...)`, chạy instance field initializers và initializer blocks theo thứ tự source.
+4. Epilogue constructor. Với `this(...)`, initializers chỉ chạy một lần ở constructor không tiếp tục ủy quyền `this(...)`.
 
 **Bẫy:** gọi method **overridable** từ constructor → subclass override chạy khi field subclass **chưa** init:
 
@@ -448,9 +448,9 @@ class Base {
     void hook() { }
 }
 class Child extends Base {
-    private final int x = 42;
+    private final int x = Integer.parseInt("42"); // không phải constant expression
     @Override void hook() {
-        System.out.println(x); // có thể in 0 — x chưa gán
+        System.out.println(x); // in 0 khi Base() gọi hook: initializer chưa chạy
     }
 }
 ```

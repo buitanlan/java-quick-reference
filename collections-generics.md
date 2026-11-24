@@ -35,16 +35,17 @@ type-safety compile-time; erasure giữ tương thích bytecode. Tài liệu nh�
 ```
 Iterable<E>
 └─ Collection<E>
-   ├─ List<E>              // có thứ tự, cho phép trùng
-   │  └─ SequencedCollection (Java 21) — cũng trên Set/Deque phù hợp
-   ├─ Set<E>               // không trùng (theo equals/hashCode hoặc compare)
-   │  └─ SortedSet / NavigableSet
-   └─ Queue<E>
-      └─ Deque<E>          // hai đầu
+   ├─ SequencedCollection<E>
+   │  ├─ List<E>           // có thứ tự, cho phép trùng
+   │  ├─ Deque<E>          // cũng extends Queue<E>
+   │  └─ SequencedSet<E>   // cũng extends Set<E>
+   │     └─ SortedSet<E> → NavigableSet<E>
+   ├─ Set<E>               // không phải mọi Set đều sequenced (HashSet)
+   └─ Queue<E>             // không phải mọi Queue đều sequenced (PriorityQueue)
 
 Map<K,V>                   // KHÔNG là Collection
-├─ SortedMap / NavigableMap
-└─ SequencedMap (Java 21)
+└─ SequencedMap<K,V>
+   └─ SortedMap<K,V> → NavigableMap<K,V>
 ```
 
 **Nguyên tắc API**:
@@ -181,6 +182,8 @@ hits.putIfAbsent("about", new LongAdder());
 
 > Đừng iterate + remove bằng cách thông thường không an toàn; dùng `Iterator.remove`, `entrySet().removeIf`, hoặc concurrent methods.
 
+Iterator của `ConcurrentHashMap` là **weakly consistent**, cho phép cập nhật đồng thời; không phải fail-fast. Tính atomic của `compute*`/`merge` theo key không làm một chuỗi nhiều lời gọi hoặc nhiều key thành transaction.
+
 ### 5.3 Các Map khác
 
 | Impl | Đặc điểm |
@@ -222,6 +225,7 @@ map.pollFirstEntry();
 
 - `ArrayList`, `LinkedList`, `LinkedHashSet`, `TreeSet`, `LinkedHashMap`, `TreeMap`… implement các sequenced interfaces phù hợp.
 - `reversed()` thường là **view** — sửa view ảnh hưởng nguồn (tùy impl).
+- `SortedSet`/`SortedMap` giữ sorted order: `addFirst`/`addLast` hoặc `putFirst`/`putLast` ném `UnsupportedOperationException`. Có sequenced interface không có nghĩa mọi mutation đều được hỗ trợ.
 
 ---
 
@@ -281,7 +285,7 @@ List<String> list = new ArrayList<>(List.of("a", "b", "c"));
 
 // Sai — CME (thường)
 for (String s : list) {
-    if (s.equals("b")) list.remove(s);
+    if (s.equals("a")) list.remove(s); // sửa sớm để lần next() tiếp theo phát hiện modification
 }
 
 // Đúng — Iterator.remove
@@ -295,10 +299,10 @@ list.removeIf(s -> s.equals("b")); // API an toàn
 | Cách | An toàn khi duyệt + xóa? |
 |------|--------------------------|
 | Enhanced-for + `list.remove` | Không (CME) |
-| `Iterator.remove` | Có (cùng iterator) |
-| `removeIf` / `entrySet().removeIf` | Có |
+| `Iterator.remove` | Có nếu iterator hỗ trợ removal; không áp dụng cho immutable/snapshot iterators |
+| `removeIf` / `entrySet().removeIf` | Có nếu collection/view hỗ trợ removal; không tự bảo đảm thread safety |
 | Index loop `for (i…)` + `remove(i)` | Cẩn thận index lệch; được phép nhưng dễ bug |
-| Concurrent collection iterator | weakly consistent — **không** CME vì structural mod thông thường |
+| Concurrent collection iterator | Weakly consistent hoặc snapshot tùy class — không CME vì structural mod thông thường |
 
 ### 8.2 Concurrent collections (tóm tắt)
 
@@ -369,7 +373,7 @@ void addInts(List<? super Integer> dest) {
     // Integer x = dest.get(0); // chỉ chắc Object
 }
 
-// Copy — JDK làm tương tự Collections.copy
+// Append với PECS — khác Collections.copy vốn dùng set vào các vị trí đã tồn tại
 public static <T> void copy(List<? super T> dest, List<? extends T> src) {
     for (T t : src) {
         dest.add(t);
@@ -419,7 +423,7 @@ List raw = a; // raw type — tránh
 - Không `new T()`, không `new T[]` trực tiếp.
 - Không overload chỉ khác type param.
 - Bridge methods: [methods.md](methods.md).
-- `instanceof List<String>` illegal — chỉ `instanceof List<?>`.
+- Với giá trị static type `Object`, không kiểm tra `instanceof List<String>` do erasure; dùng `List<?>`. Một số cast/type tests với parameterized type đã biết từ static type được phép từ Java 16; không suy ra rằng JVM kiểm tra từng element.
 
 ### 9.4 Diamond & `var` caveats
 
@@ -445,6 +449,7 @@ list.replaceAll(String::toUpperCase);
 list.sort(String.CASE_INSENSITIVE_ORDER);
 
 Collections.shuffle(list);
+list.sort(String.CASE_INSENSITIVE_ORDER); // binarySearch cần sort lại sau shuffle
 Collections.binarySearch(list, "B", String.CASE_INSENSITIVE_ORDER);
 ```
 
@@ -485,7 +490,9 @@ Collections.binarySearch(list, "B", String.CASE_INSENSITIVE_ORDER);
 
 ```java
 record BadKey(StringBuilder id) { // mutable component — nguy hiểm làm key
-    @Override public boolean equals(Object o) { /* id content */ }
+    @Override public boolean equals(Object o) {
+        return o instanceof BadKey k && id.toString().equals(k.id().toString());
+    }
     @Override public int hashCode() { return id.toString().hashCode(); }
 }
 ```

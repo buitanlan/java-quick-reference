@@ -76,10 +76,10 @@ Không có `async` lambda built-in. Bất đồng bộ: `CompletableFuture`, vir
 Compiler suy functional interface từ **ngữ cảnh**:
 
 ```java
-List<String> names = List.of("a", "bb", "c");
+List<String> names = new ArrayList<>(List.of("a", "bb", "c")); // sort cần list mutable
 
 names.forEach(s -> System.out.println(s)); // Consumer<String>
-names.sort((a, b) -> a.length() - b.length()); // Comparator<String>
+names.sort(Comparator.comparingInt(String::length)); // Comparator<String>
 
 Function<String, Integer> f = String::length;
 Predicate<String> p = s -> !s.isBlank();
@@ -120,6 +120,8 @@ Function<Integer, Integer> mul = n -> n * factor; // OK
 | Instance field (`this.f`) | Có | Đọc qua `this` — field có thể đổi; lambda giữ reference `this` |
 | `this` / `Outer.this` | Có | Anonymous/lambda trong instance method |
 | Static field | Có | Qua tên class / implicit |
+
+Lambda dùng `this` của enclosing scope, anonymous class có `this` riêng. Không dựa vào identity của lambda (JVM có thể tái dùng instance), không dùng nó làm monitor hay so bằng `==` để suy ra cùng hành vi.
 
 ### 4.2 Pitfalls capture
 
@@ -232,16 +234,17 @@ list.stream().map(s -> s == null ? "" : s.trim());
 |-----|----------|
 | Ambiguous overload | `Type::method` khớp nhiều overload → lỗi; cast target hoặc lambda tường minh |
 | Bound vs unbound | `str::equals` vs `String::equals` — arity / receiver khác |
-| Generic ctor / diamond | Đôi khi cần `<T>Type::new` hoặc target type rõ |
+| Generic ctor / diamond | Generic constructor có dạng `Type::<T>new`; generic class cần target type rõ hoặc `Box<String>::new` |
 | `this::method` / `super::method` | Giữ `this`; `super::` gọi phiên bản superclass |
 | Checked exception | Method ref tới method `throws` checked **không** khớp SAM không khai báo checked (giống lambda) |
 | Varargs method | Adapt arity có thể bất ngờ — kiểm tra overload resolution |
 | `Objects::nonNull` vs `x -> x != null` | OK; cẩn `filter(Objects::nonNull)` trên stream nullable |
 
 ```java
-// Ambiguous — Integer có nhiều valueOf
-// Function<String, Integer> f = Integer::valueOf; // có thể lỗi tùy ngữ cảnh
-Function<String, Integer> f = Integer::parseInt; // rõ hơn nếu chỉ cần String→int
+Function<String, Integer> parse = Integer::valueOf; // hợp lệ: target chọn valueOf(String)
+// Function<Integer, String> ambiguous = Integer::toString;
+// Ambiguous giữa static toString(int) và unbound instance toString().
+Function<Integer, String> render = n -> Integer.toString(n); // chọn static tường minh
 ```
 
 ```java
@@ -286,6 +289,9 @@ static <T, R> Function<T, R> unchecked(ThrowingFunction<T, R> f) {
             return f.apply(t);
         } catch (RuntimeException e) {
             throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("interrupted", e);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

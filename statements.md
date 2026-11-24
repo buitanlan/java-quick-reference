@@ -42,7 +42,7 @@ vòng lặp, nhảy (`yield` vs `return`), try-with-resources, nhãn, và `synch
   - **Synchronization**: `synchronized (obj) { }`
   - **Labeled / empty**
 
-Không có top-level statements kiểu C# 9; entry điểm vẫn là `main` (hoặc launcher hiện đại / compact source files ở phiên bản gần đây — xem docs JDK khi dùng tính năng preview/incubating riêng).
+Không có top-level statements kiểu C# 9; compact source files vẫn chứa method/field declarations, executable statements nằm trong method. Compact source và instance main đã **final từ Java 25** — xem [main-function.md](main-function.md).
 
 ---
 
@@ -73,7 +73,7 @@ final String name = "Ada";
 var list = new ArrayList<String>(); // suy luận ArrayList<String>
 ```
 
-- `var` (Java 10+): chỉ local (và index enhanced-for / try-with-resources); initializer bắt buộc (trừ vài trường hợp đặc biệt như `var` với anonymous? — thực tế `var` cần initializer có kiểu đứng được).
+- `var` (Java 10+) dùng ở local declaration có initializer, basic-for initializer, enhanced-for variable và resource declaration. Enhanced-for suy kiểu từ phần tử iterable/array, không có initializer `=`; lambda parameters dùng `var` từ Java 11.
 - **Effectively final**: biến không gán lại → lambda/inner class có thể capture.
 
 ### 3.2 Unnamed variables `_` (Java 22+)
@@ -196,7 +196,7 @@ record Point(int x, int y) {}
 ```
 
 - `case null` tách biệt (hành vi null cần khai báo rõ với pattern switch).
-- `when` = guard — **không** tham gia exhaustiveness như một type riêng.
+- `when` là guard; guard không phải constant `true` không giúp bao phủ toàn bộ type. `when true` được xử lý như nhánh không guard khi xét exhaustiveness/dominance.
 - Record / sealed hierarchies giúp compiler kiểm tra **exhaustiveness**.
 
 ```java
@@ -214,14 +214,14 @@ double area(Shape s) {
 
 ### 5.5 Exhaustiveness traps (sealed / enum / patterns)
 
-Switch **expression** (và statement dạng pattern hiện đại) yêu cầu phủ hết miền giá trị — hoặc `default` / `case null` khi cần.
+Switch **expression** và enhanced switch statement phải exhaustive theo các type/constant cases hoặc `default`. **Null được xét riêng**: reference selector `null` ném NPE nếu thiếu `case null`; `default` và type pattern tổng quát không bắt `null`. Thêm `case null` không thay thế nhánh bao phủ các giá trị non-null.
 
 | Tình huống | Bẫy | Cách tránh |
 |------------|-----|------------|
 | `sealed` + `default` | `default` **nuốt** subtype mới → mất cảnh báo khi thêm `permits` | Bỏ `default` khi sealed đủ nhánh; để compiler báo thiếu case |
 | `enum` + `default` | Tương tự — thêm hằng enum không còn lỗi compile | Switch expression không `default` nếu muốn fail-at-compile |
 | Chỉ `when` guards | `case String s when …` **không** làm exhaust `String` | Cần thêm `case String s` không guard (hoặc `default`) |
-| `case null` thiếu | Switch trên reference + pattern có thể NPE / lỗi null-hostility tùy dạng | Khai báo `case null` tường minh khi null hợp lệ |
+| `case null` thiếu | Selector reference null → NPE, kể cả khi có `default` | Khai báo `case null` tường minh khi null hợp lệ |
 | Dominance / thứ tự | Case cụ thể sau case tổng quát → lỗi “dominated” | Đặt pattern hẹp / guarded **trước** pattern rộng |
 | Nested record pattern | Thiếu nhánh lồng → không exhaust | Phủ mọi combination hoặc `default` có chủ đích |
 | Preview primitives (JEP 532) | Exhaust với primitive boxes dễ nhầm | Cô lập `--enable-preview`; xem [§6](#6-pattern-matching--jep-532-preview) |
@@ -289,7 +289,7 @@ Cho phép pattern / `instanceof` / `switch` với **kiểu nguyên thủy**, kè
 
 ```java
 // PREVIEW — JEP 532 (Java 27, Fifth Preview)
-Object value = 42;
+int value = 42;
 
 if (value instanceof byte b) {
     // chỉ true nếu giá trị khớp byte chính xác
@@ -298,12 +298,12 @@ if (value instanceof byte b) {
 
 String kind = switch (value) {
     case byte b -> "byte:" + b;
-    case int i -> "int:" + i;
-    case long l -> "long:" + l;
-    case double d -> "double:" + d;
-    case boolean bo -> "boolean:" + bo;
-    default -> "other";
+    case int i -> "int:" + i; // phủ phần int còn lại; không thêm default
 };
+
+Object boxed = 42;
+boolean isInt = boxed instanceof int;   // true: Integer -> int
+boolean isByte = boxed instanceof byte; // false: static Object chỉ kiểm tra wrapper Byte
 ```
 
 **Ý nghĩa thực dụng:** xử lý boxed/`Object`/`Number` thống nhất hơn; tránh ép kiểu tay rồi kiểm tra range. Khi viết thư viện production LTS, cân nhắc chờ standardized hoặc cô lập code preview sau flag.
@@ -349,7 +349,7 @@ for (char c : "hi".toCharArray()) {
 ```
 
 - Iterable hoặc mảng. Biến vòng lặp là bản sao tham chiếu/giá trị — **không** gán lại phần tử collection qua biến đó.
-- Sửa cấu trúc collection khi đang duyệt → `ConcurrentModificationException` (fail-fast iterator).
+- Sửa cấu trúc collection ngoài iterator khi đang duyệt có thể gây `ConcurrentModificationException` với fail-fast iterator (best-effort, không bảo đảm); concurrent/snapshot iterators có contract riêng.
 
 ### 7.4 Gợi ý virtual threads (liên quan vòng lặp I/O)
 
@@ -416,11 +416,11 @@ int x = switch (n) {
 | Arrow expression `case … -> expr` | Không cần `yield` — `expr` đã là giá trị | — |
 
 ```java
-// Sai tư duy: return trong block switch expression thoát METHOD, không phải chỉ nhánh
-int bad(int n) {
+// return không được nhảy ra ngoài switch expression
+int result(int n) {
     return switch (n) {
         case 1 -> {
-            // return 1;  // hợp lệ nhưng thoát bad(), không “yield cho switch”
+            // return 1;  // LỖI BIÊN DỊCH: không được return xuyên switch expression
             yield 1;
         }
         default -> 0;
@@ -429,7 +429,7 @@ int bad(int n) {
 ```
 
 - Switch expression dạng `case … -> { … }` **bắt buộc** `yield` (hoặc `throw`) cho mọi đường ra giá trị.
-- Nhầm `return` / `yield` → bug kiểm soát luồng khó thấy trong nested switch.
+- `return` trong switch **statement** có thể thoát method; `return` nhảy ra khỏi switch **expression** là lỗi biên dịch. Method/lambda khai báo lồng có `return` riêng theo scope của nó.
 
 ### 8.4 `throw`
 
@@ -470,7 +470,7 @@ try {
 
 ```java
 catch (IOException | SQLException e) {
-    // e effectively final, kiểu giao gần nhất (Alternatives)
+    // e implicitly final; kiểu là least upper bound của các alternative
 }
 ```
 
@@ -541,7 +541,7 @@ synchronized (lock) {
 - `synchronized` method ≡ `synchronized (this)` (instance) hoặc `synchronized (Foo.class)` (static).
 - Đảm bảo mutual exclusion + happens-before khi vào/ra monitor.
 - Tránh deadlock: luôn chiếm lock theo thứ tự cố định; giữ section ngắn.
-- Virtual threads: vẫn dùng được; tránh I/O lâu trong monitor nếu có thể (carrier pinning với một số native frame / synchronized trong quá khứ — theo dõi hướng dẫn JDK hiện tại).
+- Virtual threads: JEP 491 (JDK 24+) bỏ pinning do monitor. I/O lâu vẫn giữ monitor và tăng contention; native frames có thể pin carrier — xem [threading.md](threading.md#3-pinning-trên-virtual-threads).
 
 ---
 
@@ -550,8 +550,9 @@ synchronized (lock) {
 `;` đơn là empty statement — hợp lệ nhưng dễ lỗi (`for (...);`).
 
 ```java
-for (int i = 0; i < n; i++); // BUG thường gặp: vòng lặp rỗng
-    sum += i;
+int i = 0;
+for (; i < n; i++); // BUG: dấu ; là toàn bộ thân vòng lặp
+    sum += i;       // chỉ chạy một lần sau vòng lặp; indentation không tạo block
 ```
 
 ---
@@ -561,7 +562,7 @@ for (int i = 0; i < n; i++); // BUG thường gặp: vòng lặp rỗng
 1. **Quên `break` trong switch statement cổ điển** — fall-through âm thầm.
 2. **`default` nuốt sealed/enum** — mất exhaustiveness; subtype/hằng mới không còn lỗi compile.
 3. **Guard `when` tưởng đã phủ type** — vẫn cần case type không guard hoặc `default`.
-4. **`yield` vs `return`** — `return` thoát method; `yield` chỉ kết thúc nhánh switch expression.
+4. **`yield` vs `return`** — dùng `yield` trong switch expression; `return` xuyên ra method ngoài expression bị compiler từ chối.
 5. **`break` thiếu label** trong nested loop — chỉ thoát vòng trong.
 6. **`continue outer`** skip cleanup / logic giữa hai vòng — khó review.
 7. **`for (...);` empty statement** — thân vòng “dính” câu sau; xem §12.
@@ -569,7 +570,7 @@ for (int i = 0; i < n; i++); // BUG thường gặp: vòng lặp rỗng
 9. **Gán biến vòng enhanced-for** — không đổi phần tử collection; cần `ListIterator` / index.
 10. **`assert` làm validation API** — tắt mặc định (`-ea`); không thay `IllegalArgumentException`.
 11. **JEP 532 preview** trộn production không flag — build lệch môi trường.
-12. **`synchronized` + I/O dài** trên virtual threads — nguy cơ pinning / giữ monitor lâu.
+12. **`synchronized` + I/O dài** — giữ monitor lâu gây contention; trên JDK 24+ không tự gây monitor pinning.
 
 ---
 
@@ -587,7 +588,7 @@ for (int i = 0; i < n; i++); // BUG thường gặp: vòng lặp rỗng
 ```text
 □ switch expression: đủ nhánh / không default nuốt sealed|enum
 □ yield chỉ trong switch expression; return = thoát method
-□ nested loop: label có chủ đích hoặc extrmethod
+□ nested loop: label có chủ đích hoặc tách method
 □ try-with-resources cho AutoCloseable
 □ không for (...);
 □ preview JEP 532 có flag rõ

@@ -51,10 +51,10 @@ Xem thêm: [async.md](async.md) (`CompletableFuture`, timeout, reactive) · [key
 | | Platform | Virtual |
 |--|----------|---------|
 | Chi phí | Nặng (~OS thread) | Rất nhẹ (hàng triệu có thể) |
-| Mapping | 1–1 OS thread | Nhiều-1 lên carriers |
+| Mapping | 1–1 OS thread | Nhiều VT trên nhiều carrier (M:N); mỗi VT đang chạy dùng một carrier |
 | Phù hợp | CPU-bound ít thread, JNI đặc thù | I/O-bound throughput cao |
 | Pooling | Có ý nghĩa | **Không** cần pool nhỏ — tạo theo nhu cầu |
-| Pinning | N/A | Tránh giữ carrier lâu trong `synchronized`/native |
+| Pinning | N/A | Native/FFM có thể giữ carrier; monitor không còn gây pinning thông thường từ JDK 24 |
 | Stack | Stack OS lớn | Stack ảo, grow/shrink theo nhu cầu |
 
 ```java
@@ -77,27 +77,25 @@ Khi virtual thread **ghim (pin)** carrier, scheduler không thể unmount VT kh�
 
 | Tình huống | Pin? | Ghi chú |
 |------------|------|---------|
-| `synchronized` block/method đang giữ monitor | **Có** (HotSpot hiện tại) | Critical section ngắn thường OK; dài + contended = nguy hiểm |
-| `ReentrantLock` / java.util.concurrent locks | **Không** (thường) | Prefer khi critical section dài hoặc VT + contention |
+| `synchronized` block/method, chờ monitor hoặc `Object.wait()` | **Không do monitor**, từ JDK 24 (JEP 491) | JDK 21–23 còn hạn chế pinning; contention vẫn làm các task chờ nhau |
+| `ReentrantLock` / java.util.concurrent locks | **Không** do bản thân lock | Chọn khi cần timed/interruptible acquisition, fairness hoặc nhiều `Condition` |
 | Native / JNI frame trên stack | **Có** | Giữ native càng ngắn càng tốt |
-| Blocking I/O JDK “ảo hóa” được (`Socket`, `FileChannel`… trên VT) | Unmount | Carrier được giải phóng trong lúc chờ |
+| Blocking network I/O JDK hỗ trợ VT (ví dụ socket) | Thường unmount | File I/O / lời gọi OS chưa hỗ trợ unmount có thể giữ OS thread; không coi mọi I/O là non-blocking |
 | Busy-spin / CPU thuần | Chiếm carrier | Không pin theo nghĩa monitor, nhưng vẫn “ăn” carrier |
 
-> HotSpot tiếp tục cải thiện pinning qua các bản phát hành — luôn xác nhận hành vi trên JDK bạn deploy. Java 27 vẫn coi `synchronized` dài trên VT là anti-pattern khi contended.
+> [JEP 491](https://openjdk.org/jeps/491) đã loại bỏ pinning do monitor từ **JDK 24**. Trên Java 27, không cần đổi `synchronized` sang `ReentrantLock` chỉ để tránh pinning. Giữ critical section ngắn để giảm contention; native frames vẫn cần đo riêng.
 
 ### 3.2 Chẩn đoán
 
 ```text
-# In stack khi VT bị pin (development / staging)
-java -Djdk.tracePinnedThreads=full ...
-# hoặc: short — ít verbose hơn
-java -Djdk.tracePinnedThreads=short ...
+# Ghi JFR khi cần chẩn đoán trên JDK 27
+java -XX:StartFlightRecording=filename=vt.jfr,settings=profile ...
 ```
 
-- JFR / thread dump hiện đại hiện virtual threads; tìm carrier stuck trong `synchronized` hoặc native.
-- Đo: throughput rơi khi load tăng + nhiều VT vào cùng monitor → nghi pinning / lock contention.
+- Xem sự kiện JFR `jdk.VirtualThreadPinned` và thread dump có hỗ trợ VT; phân biệt native pinning với lock contention.
+- `jdk.tracePinnedThreads` đã bị loại bỏ từ JDK 24; hướng dẫn dùng property này chỉ áp dụng JDK 21–23.
 
-### 3.3 Prefer `ReentrantLock` khi contended trên VT
+### 3.3 `ReentrantLock` khi cần API khóa linh hoạt
 
 ```java
 private final Lock lock = new ReentrantLock();
@@ -105,7 +103,7 @@ private final Lock lock = new ReentrantLock();
 void update() {
     lock.lock();
     try {
-        // critical section — có thể dài hơn synchronized trên VT
+        // critical section — vẫn nên ngắn để giảm contention
         mutate();
     } finally {
         lock.unlock();
@@ -116,7 +114,7 @@ void update() {
 | Chọn | Khi |
 |------|-----|
 | `synchronized` ngắn | Critical section cực ngắn, contention thấp, API monitor/`wait` |
-| `ReentrantLock` | Contended, timeout/`tryLock`, VT nhiều, critical section dài hơn |
+| `ReentrantLock` | Cần timeout/`tryLock`, interruptible acquisition, fairness hoặc nhiều `Condition` |
 | Concurrent collections / atomics | Tránh lock tường minh nếu đủ |
 
 ---
@@ -258,7 +256,7 @@ synchronized (lockObj) {
 - Đảm bảo **mutual exclusion** + **happens-before** khi unlock → lock tiếp theo.
 - Reentrant: cùng thread vào lại được.
 - Kết hợp `wait`/`notify` trên cùng monitor (ưu tiên thư viện higher-level: `Condition`, latch, CF).
-- Trên **virtual threads**: giữ ngắn; contended dài → `ReentrantLock` (mục 3).
+- Trên **virtual threads**: từ JDK 24, monitor cho phép unmount; chọn `ReentrantLock` khi cần thêm tính năng khóa (mục 3).
 
 ### 5.2 `volatile`
 
@@ -295,7 +293,7 @@ if (lock.tryLock(1, TimeUnit.SECONDS)) {
 
 | Công cụ | Dùng khi |
 |---------|----------|
-| `ReentrantLock` | Lock linh hoạt, try/timeout, fairness; **VT contended** |
+| `ReentrantLock` | Lock linh hoạt, try/timeout, interruptible acquisition, fairness |
 | `ReentrantReadWriteLock` | Nhiều reader / ít writer |
 | `StampedLock` | Optimistic read nâng cao |
 | `Semaphore` | Giới hạn số permit (vd. giới hạn song song CPU / downstream) |
@@ -320,7 +318,7 @@ long total = hits.sum();
 
 ## 6. JEP 506 — Scoped Values (final Java 25)
 
-**ScopedValue** chia sẻ dữ liệu **bất biến** cho callee trong cùng thread và **child threads** (đặc biệt với structured concurrency / virtual threads) — thay thế hiện đại cho nhiều use-case của `ThreadLocal`.
+**ScopedValue** chia sẻ **binding không đổi trong scope** cho callee trong cùng thread; `StructuredTaskScope` truyền binding sang subtasks. Object được bind không tự trở thành immutable. `Thread.startVirtualThread` và executor thông thường **không** tự kế thừa scoped-value bindings.
 
 ```java
 private static final ScopedValue<Principal> PRINCIPAL = ScopedValue.newInstance();
@@ -358,7 +356,7 @@ Principal cur = PRINCIPAL.orElse(Principal.ANONYMOUS);
 |--|---------------|---------------|
 | Mutability | Thường mutable per-thread | Binding **immutable** trong scope |
 | Lifetime | Dễ rò nếu không `remove` | Lexical / bounded bởi `where(...).run` |
-| Inherit | `InheritableThreadLocal` copy | Thiết kế share hiệu quả với child (structured / VT) |
+| Inherit | `InheritableThreadLocal` truyền giá trị theo `childValue` (mặc định cùng reference) | Qua subtasks của `StructuredTaskScope`, không qua mọi VT/executor |
 | Virtual threads | Chi phí / footprint cao nếu lạm dụng (mỗi VT một copy) | Tối ưu hơn với số lượng VT lớn |
 | Rebind | `set` mọi lúc | Nested `where` — scope chồng, không “set lung tung” |
 | API ổn định | Lâu đời | **Final từ Java 25** (JEP 506) |
@@ -368,7 +366,7 @@ Principal cur = PRINCIPAL.orElse(Principal.ANONYMOUS);
 | Tình huống | Chọn |
 |------------|------|
 | Request id, principal, locale — bất biến trong call chain | **ScopedValue** |
-| Context truyền xuống `StructuredTaskScope.fork` / VT con | **ScopedValue** |
+| Context truyền xuống `StructuredTaskScope.fork` | **ScopedValue**; VT tạo trực tiếp cần bind tường minh |
 | Framework legacy / API bắt buộc `ThreadLocal` | `ThreadLocal` (+ `remove` trong `finally`) |
 | State mutable theo thread (buffer, counter tạm) | Tránh cả hai nếu được; nếu buộc → `ThreadLocal` + cleanup |
 | `SimpleDateFormat` per-thread | Tránh — dùng `DateTimeFormatter` thread-safe |
@@ -412,7 +410,7 @@ atomic.incrementAndGet();
 | `interrupt` | Gọi `interrupt` happens-before thread bị interrupt phát hiện (exception / flag) |
 | Concurrent collections | Put/offer… happens-before take/get tương ứng (document từng lớp — `ConcurrentHashMap`, blocking queues…) |
 | `Executor` task | Nộp task happens-before bắt đầu chạy; kết thúc task happens-before `Future.get` return thành công |
-| `final` field | Sau khi ctor hoàn tất, đọc reference an toàn thấy giá trị `final` đã init (safe publication) |
+| `final` field | Có bảo đảm initialization safety nếu `this` không escape trước khi ctor hoàn tất; đây là quy tắc riêng của final fields, không phải cạnh đồng bộ thông thường |
 | Transitivity | Nếu A hb B và B hb C thì A hb C |
 
 Publication an toàn:
@@ -422,7 +420,7 @@ Publication an toàn:
 // safer: volatile reference tới object bất biến, hoặc synchronized, hoặc final fields sau ctor
 ```
 
-`final` fields: sau khi constructor hoàn tất, thread khác đọc reference an toàn thấy giá trị final đã init (safe publication qua final).
+`final` có bảo đảm initialization safety riêng nếu constructor không làm thoát `this` trước khi hoàn tất. Điều này không thay thế safe publication cho toàn bộ object và không làm các field mutable đọc/ghi đồng thời trở nên an toàn.
 
 Busy-wait trên `boolean` không `volatile` / không sync → **không** có happens-before — có thể không bao giờ thấy update (tương tự pitfall Go memory model).
 
@@ -464,9 +462,10 @@ t.join(Duration.ofSeconds(5));
 API từ Java 25+: mở scope bằng **static factory** `StructuredTaskScope.open(...)`. Java 27 thêm type parameter `R_X` cho exception của `join()`, và `Joiner.timeout()` thay `onTimeout()`.
 
 ```java
-// javac/java --enable-preview --release 27
+// Compile: javac --enable-preview --release 27 ...
+// Run:     java --enable-preview ...
 
-Response handle() throws InterruptedException {
+Response handle() throws InterruptedException, ExecutionException {
     try (var scope = StructuredTaskScope.open()) {
         StructuredTaskScope.Subtask<String> user =
                 scope.fork(() -> findUser());
@@ -490,18 +489,21 @@ Response handle() throws InterruptedException {
 | Scoped Values | Child **inherit** binding từ parent |
 | Observability | Thread dump phản ánh quan hệ cha–con |
 
-Joiner tùy biến (ý tưởng — xác nhận javadoc JDK 27):
+`close()` vẫn phải chờ các subtask kết thúc sau khi yêu cầu hủy. Task bỏ qua interruption có thể khiến scope chờ vô hạn; đặt timeout cho I/O và tuân thủ cơ chế hủy hợp tác.
+
+Các factory có sẵn trong [API JDK 27](https://docs.oracle.com/en/java/javase/27/docs/api/java.base/java/util/concurrent/StructuredTaskScope.Joiner.html):
 
 ```java
-// Pseudocode — tham khảo JEP 533 / javadoc chính xác trên JDK của bạn
-// try (var scope = StructuredTaskScope.open(Joiner.allSuccessfulOrThrow())) { ... }
-// try (var scope = StructuredTaskScope.open(Joiner.anySuccessfulOrThrow())) { ... }
+// Joiner là nested interface: import java.util.concurrent.StructuredTaskScope.Joiner;
+// open() dùng awaitAllSuccessfulOrThrow(): join trả Void, đọc từng Subtask.get().
+// open(Joiner.<String>allSuccessfulOrThrow()): join trả List<String>.
+// open(Joiner.<String>anySuccessfulOrThrow()): join trả String từ task thắng.
 ```
 
 | Policy (tinh thần) | Hành vi |
 |--------------------|---------|
 | Fail-fast / wait success (default `open()`) | Một fail → cancel còn lại, lan lỗi |
-| All successful | Đợi tất cả thành công hoặc fail |
+| `allSuccessfulOrThrow()` | Trả list kết quả khi tất cả thành công; fail thì cancel các task còn lại |
 | Any successful | Lấy kết quả đầu thành công, cancel phần còn |
 
 ### 9.3 So với Executor / CompletableFuture
@@ -512,7 +514,7 @@ Joiner tùy biến (ý tưởng — xác nhận javadoc JDK 27):
 | Cancel siblings | Tự `cancel` | Thủ công | Theo Joiner |
 | Preview? | Stable | Stable | **Preview trong 27** |
 | Exception model | `ExecutionException` | `CompletionException` | Theo Joiner / scope |
-| Kết hợp VT + ScopedValue | Có thể | Có thể | Thiết kế cho VT |
+| Kế thừa ScopedValue | Không tự động | Không tự động | Tự động qua `fork` |
 
 ```text
 javac --enable-preview --release 27 Main.java
@@ -526,7 +528,7 @@ Khi chưa bật preview / cần stable API: fan-out bằng VT executor + hủy t
 ## 10. Pitfalls
 
 1. **Race trên compound action** — `count++`, check-then-act trên map không atomic dù field `volatile`.
-2. **Pinning VT** — `synchronized` dài / JNI giữ carrier; không đo bằng `jdk.tracePinnedThreads` / JFR.
+2. **Nhầm pinning với contention** — trên JDK 24+, monitor không còn là nguyên nhân pinning thông thường; dùng JFR để tìm native pinning và đo thời gian chờ lock.
 3. **Pool VT cố định nhỏ** — lãng phí mô hình Loom; bottleneck thật là DB connection / rate limit.
 4. **Unbounded queue** trên platform pool — OOM ẩn khi submit nhanh hơn xử lý.
 5. **Quên shutdown executor** — thread/platform leak; JVM treo lúc thoát.
@@ -547,8 +549,8 @@ Khi chưa bật preview / cần stable API: fan-out bằng VT executor + hủy t
 - [ ] Đừng pool virtual threads kiểu fixed nhỏ “cho chắc”.
 - [ ] Shared mutable state: minimize; prefer immutability, queue, concurrent collections, atomics.
 - [ ] Context xuyên method: **ScopedValue** (25+) thay `ThreadLocal` khi bất biến theo request.
-- [ ] VT + lock contended: prefer **`ReentrantLock`**; `synchronized` chỉ khi rất ngắn.
-- [ ] Staging: `-Djdk.tracePinnedThreads=full` khi nghi throughput VT thấp.
+- [ ] Chọn `synchronized` hoặc `ReentrantLock` theo tính năng cần; giảm thời gian giữ lock và đo contention.
+- [ ] Staging: JFR `jdk.VirtualThreadPinned` khi nghi native pinning; không dùng property `jdk.tracePinnedThreads` trên JDK 27.
 - [ ] Executor: bounded work queue hoặc backpressure; luôn `close` / `shutdown`.
 - [ ] `Future.get`: timeout; trên interrupt → restore flag + cân nhắc `cancel(true)`.
 - [ ] Fan-out có hủy đồng bộ: `StructuredTaskScope` (preview) hoặc hủy sibling tường minh.
@@ -566,7 +568,7 @@ Khi chưa bật preview / cần stable API: fan-out bằng VT executor + hủy t
 | `volatile` / atomics | Flag / counter không compound phức tạp |
 | `ScopedValue` | Context bất biến (25+ final) |
 | `StructuredTaskScope` | Fan-out có cấu trúc (27 preview) |
-| `jdk.tracePinnedThreads` | Chẩn đoán pinning |
+| JFR `jdk.VirtualThreadPinned` | Chẩn đoán pinning trên JDK hiện tại |
 | `CompletableFuture` | Composition async — [async.md](async.md) |
 
 ### Version map
@@ -576,6 +578,7 @@ Khi chưa bật preview / cần stable API: fan-out bằng VT executor + hủy t
 | 8+ | `CompletableFuture`, commonPool |
 | 19+ | `ExecutorService` `AutoCloseable` (`close` → shutdown) |
 | 21 | Virtual threads **final**; `Thread.ofVirtual` / `ofPlatform` |
+| **24** | JEP 491: bỏ pinning do monitor; loại bỏ `jdk.tracePinnedThreads` |
 | 21–24 | Scoped Values / Structured Concurrency preview nhiều vòng |
 | **25 LTS** | Scoped Values **final** (JEP 506); Structured Concurrency Fifth Preview (JEP 505) |
 | **26** | Structured Concurrency Sixth Preview (JEP 525); Lazy Constants preview |

@@ -72,7 +72,7 @@ public @interface Author {
 - “Method” không tham số, không body — là **elements**.
 - Kiểu element cho phép: primitive, `String`, `Class`, enum, annotation, và mảng của các kiểu đó.
 - Không dùng `Integer` wrapper, generic, hay arbitrary class làm kiểu element.
-- Default value phải là compile-time constant theo quy tắc annotation.
+- Giá trị primitive/`String` phải là constant expression; `Class` dùng class literal, enum dùng enum constant, annotation dùng annotation lồng, mảng dùng initializer một chiều. Không dùng `null`, `new` hay lời gọi method; không phải mọi giá trị annotation đều là constant expression theo JLS.
 
 ```java
 @Author(name = "Lan", revision = 2)
@@ -193,7 +193,7 @@ Compiler gói các `@Tag` vào container `@Tags`. Đọc runtime: `getAnnotation
 
 ```java
 @Override
-public boolean equals(Object o) { /* ... */ }
+public boolean equals(Object o) { return this == o; } // ví dụ equality theo identity
 ```
 
 - `SOURCE` retention — giúp compiler báo lỗi nếu không override/implement đúng.
@@ -238,7 +238,7 @@ public interface Parser {
 }
 ```
 
-- Đảm bảo đúng **một** abstract method (SAM) — dùng cho lambda/method reference.
+- Kiểm tra functional interface: các abstract methods phải biểu diễn được một function contract (SAM); bỏ qua method khớp public instance method của `Object`. Interface `sealed` không là functional interface. Nhiều declaration override-equivalent có thể vẫn hợp lệ.
 - Không bắt buộc để lambda hoạt động, nhưng nên có trên API public.
 
 ### 4.5 `@SafeVarargs`
@@ -250,7 +250,7 @@ static <T> List<T> listOf(T... elements) {
 }
 ```
 
-- Áp dụng method/constructor `static` hoặc `final` (hoặc private) với varargs generic.
+- Áp dụng cho varargs constructor và varargs method `static`/`final`/`private`; constructor không có modifier `static`/`final`. Thường hữu ích với non-reifiable element type (generic varargs).
 - Khẳng định không thực hiện thao tác heap pollution không an toàn — vẫn phải viết đúng; annotation chỉ tắt cảnh báo.
 
 Khác: `@Native` (gợi ý constant dùng JNI), `@Serial` (Java 14 — đánh dấu member liên quan serialization).
@@ -276,7 +276,7 @@ Consumer<@NonNull String> c;
 
 ## 6. Đọc annotation lúc runtime
 
-Yêu cầu `@Retention(RUNTIME)` và (thường) phần tử accessible.
+Yêu cầu `@Retention(RUNTIME)`; đọc metadata không đồng nghĩa với gọi method hay truy cập field của phần tử đó.
 
 ```java
 @Retention(RetentionPolicy.RUNTIME)
@@ -300,7 +300,7 @@ API chính:
 - `getAnnotationsByType` / `getDeclaredAnnotationsByType` (repeatable)
 - Trên method/field/parameter: `Executable.getParameters()`, `Method.getAnnotation`, …
 
-Module hệ thống: reflection vào annotation trên type không mở có thể bị hạn chế — mở package hoặc dùng API framework.
+Annotation của type được đọc bằng `Class` reflection không tự đòi package `opens`. Deep reflection vào private members hoặc việc gọi member của annotation type không accessible có quy tắc access riêng; chỉ mở package khi thao tác đó cần.
 
 ---
 
@@ -311,13 +311,15 @@ Module hệ thống: reflection vào annotation trên type không mở có thể
 
 Luồng:
 
-1. Khai báo processor: `@SupportedAnnotationTypes`, `@SupportedSourceVersion(RELEASE_25)`.
-2. Đăng ký qua `META-INF/services/javax.annotation.processing.Processor` hoặc `-processor`.
+1. Khai báo processor: `@SupportedAnnotationTypes`, `@SupportedSourceVersion(RELEASE_27)` (hoặc mức source processor thực sự hỗ trợ).
+2. Đăng ký qua `META-INF/services/javax.annotation.processing.Processor`, hoặc `provides … with …` trong module. Từ JDK 23 phải cấu hình processing tường minh, ví dụ `-processor`, `--processor-path`/`--processor-module-path`, hoặc `-proc:full`; chỉ để processor trên classpath không còn đủ.
 3. `process()` nhận `RoundEnvironment`, sinh mã bằng `Filer` / kiểm tra bằng `Messager`.
+
+Các tùy chọn discovery/processing được mô tả trong [hướng dẫn `javac` JDK 27](https://docs.oracle.com/en/java/javase/27/docs/specs/man/javac.html#annotation-processing).
 
 ```java
 @SupportedAnnotationTypes("com.example.AutoFactory")
-@SupportedSourceVersion(SourceVersion.RELEASE_25)
+@SupportedSourceVersion(SourceVersion.RELEASE_27)
 public class AutoFactoryProcessor extends AbstractProcessor {
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment round) {
@@ -332,7 +334,7 @@ public class AutoFactoryProcessor extends AbstractProcessor {
 Use cases: Dagger/Hilt, MapStruct, Immutables, sinh builder, kiểm tra quy ước kiến trúc lúc compile.
 
 - Processor chạy trong javac — fail fast tốt hơn reflection runtime.
-- Không nhầm với Lombok (bytecode/AST manipulation — mô hình khác dù cũng “annotation-driven”).
+- Annotation processing chuẩn tạo file mới qua `Filer`, không cung cấp API chuẩn để sửa AST của source hiện có. Lombok dùng tích hợp riêng với compiler để biến đổi AST; không đại diện cho khả năng của processor chuẩn.
 
 ---
 
@@ -379,7 +381,7 @@ Quét classpath/module path + đọc annotation = nền tảng của micro-frame
 
 ## 9. Pitfalls (Bẫy)
 
-1. **Sai `@Retention`** — mặc định là `CLASS`; reflection/`getAnnotation` trả `null` nếu cần `RUNTIME` mà quên khai báo. Ngược lại: giữ `RUNTIME` cho metadata chỉ phục vụ APT → phình class file vô ích.
+1. **Sai `@Retention`** — mặc định là `CLASS`; reflection không đọc được nếu cần `RUNTIME` mà quên khai báo. Chọn `SOURCE` cho metadata chỉ cần lúc biên dịch; `CLASS` và `RUNTIME` đều lưu metadata trong class file.
 2. **Quên `@Override`** — typo / overload nhầm thành method mới; compiler không báo. Luôn gắn khi cố ý override/implement — [methods.md](methods.md).
 3. **`@Repeatable` thiếu container** — phải có annotation container (`@Tags` chứa `Tag[] value()`) cùng retention/target phù hợp; đọc runtime dùng `getAnnotationsByType`, không chỉ `getAnnotation` (chỉ thấy container khi đã gộp).
 4. **`@Inherited` chỉ trên class** — không “kế thừa” xuống method/field; interface cũng không theo nghĩa meta này.

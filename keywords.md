@@ -46,6 +46,8 @@ Java 27 kế thừa nhiều tính năng hiện đại: **records**, **sealed cla
 
 ---
 
+Java 27 có **51 reserved keywords**: 50 từ ở mục 2 và `_` ở mục 4. `true`, `false`, `null` là literal, không phải keyword. Các contextual keywords chỉ có nghĩa đặc biệt trong ngữ cảnh tương ứng; từ Java 25, `module` còn xuất hiện trong `import module`.
+
 ## 2. Reserved keywords
 
 ### 2.1 `abstract`
@@ -141,6 +143,7 @@ int wider = b; // widening
 - **Mục đích:** Nhánh trong `switch`. Hỗ trợ constant, patterns, `when` guards, nhiều nhãn (`case 1, 2, 3`).
 
 ```java
+Integer code = 503; // reference selector để dùng Integer pattern không cần primitive preview
 String label = switch (code) {
     case 200 -> "OK";
     case 404, 410 -> "Missing";
@@ -172,7 +175,7 @@ try {
 }
 ```
 
-**Ghi chú:** Multi-catch: các kiểu phải **không** kế thừa lẫn nhau; biến `e` là `final` hiệu dụng. Chi tiết: [exceptions.md](exceptions.md).
+**Ghi chú:** Multi-catch: các kiểu phải **không** kế thừa lẫn nhau; biến `e` là **implicitly final**, không được gán lại. Chi tiết: [exceptions.md](exceptions.md).
 
 ---
 
@@ -305,7 +308,7 @@ public enum Status {
 }
 ```
 
-**Ghi chú:** Enum là class `final` đặc biệt; constant là singleton. Switch trên enum + exhaustiveness: [statements.md](statements.md) · [oop.md](oop.md).
+**Ghi chú:** Enum ngầm `final` nếu không có constant-specific body; nếu có thì ngầm `sealed` với các anonymous subclass của constant. Constant là singleton. Chi tiết: [statements.md](statements.md) · [oop.md](oop.md).
 
 ---
 
@@ -335,7 +338,7 @@ public final class Utils { }
 
 **Ghi chú:**
 
-- **Class `final`:** không subclass (security/perf/intent). `enum` và **record** là `final` (record implicit).
+- **Class `final`:** không subclass. **Record** ngầm `final`; enum có thể ngầm `final` hoặc `sealed` theo constant bodies.
 - **Method `final`:** không override — hữu ích khi muốn “chốt” hành vi trong template method / tránh fragile base.
 - **Field `final`:** blank final phải được **definitely assigned** đúng một lần (ctor / initializer / compact ctor của record). `static final` thường là hằng compile-time nếu kiểu primitive/`String` và khởi tạo bằng hằng.
 - **Local / parameter `final`:** không gán lại; biến **effectively final** (không khai `final` nhưng không gán lại) mới được capture bởi lambda/anonymous class.
@@ -348,7 +351,7 @@ public final class Utils { }
 ### 2.19 `finally`
 
 - **Loại:** reserved  
-- **Mục đích:** Khối luôn chạy sau `try`/`catch` (trừ khi JVM thoát cứng — `halt`, một số crash native).
+- **Mục đích:** Chạy khi luồng điều khiển rời `try`/`catch`, kể cả `return`/`throw`. Không bảo đảm chạy khi JVM kết thúc (`System.exit`, `halt`, crash/kill) hoặc luồng không bao giờ rời `try`.
 
 ```java
 try {
@@ -413,7 +416,7 @@ if (user != null && user.isActive()) {
 - **Mục đích:** Class triển khai một hoặc nhiều interface.
 
 ```java
-public class ArrayList<E> implements List<E>, RandomAccess { }
+class StringList extends ArrayList<String> implements RandomAccess { }
 ```
 
 ---
@@ -718,10 +721,10 @@ synchronized (lock) {
 
 **Ghi chú:**
 
-- Vào monitor ⇒ **happens-before** với lần unlock cùng monitor tiếp theo (JMM): đọc sau unlock thấy ghi trước unlock.
+- **Unlock** monitor happens-before lần **lock sau** trên cùng monitor (JMM): thread nhận lock thấy các ghi trước lần unlock đó.
 - Method `synchronized` ≡ `synchronized (this)` (instance) hoặc `synchronized (Foo.class)` (static) — khóa thô, dễ deadlock nếu gọi chéo nhiều lock.
 - **Chỉ** bảo vệ đoạn trong khối; compound check-then-act (`if (!map.containsKey) map.put`) vẫn cần cùng lock / dùng `ConcurrentHashMap` API atomic.
-- **Virtual threads (21+):** `synchronized` vẫn đúng nghĩa, nhưng blocking lâu trong monitor có thể **pin** carrier thread (hạn chế scaling). Ưu tiên khóa ngắn; cân nhắc `ReentrantLock`, cấu trúc lock-free / concurrent collections khi critical section dài hoặc I/O.
+- **Virtual threads:** JDK 21–23 có pinning do monitor; **JDK 24+ (JEP 491) đã bỏ hạn chế này**. Trên Java 27, chọn `ReentrantLock` nếu cần timed/interruptible locking hoặc fairness, giữ lock ngắn để giảm contention; native frames vẫn có thể pin carrier.
 - Không đồng bộ trên `this` nếu API công khai để client có thể khóa cùng object → deadlock. Không dùng `String` intern / boxed primitive làm lock.
 - `wait`/`notify` đòi sở hữu monitor của đúng object. Chi tiết: [threading.md](threading.md) · [statements.md](statements.md).
 
@@ -878,7 +881,7 @@ var stream = Files.lines(path);     // Stream<String>
 - Được: local variable, index/`resource` trong try-with-resources, biến vòng enhanced-for / truyền thống (từ các bản hỗ trợ tương ứng).
 - **Không** dùng cho field, method return type, hay tham số method thường.
 - Lambda: tham số `var` (Java 11+, JEP 323) khi cần đồng nhất / annotation: `(var x, var y) -> …` — không trộn `var` với kiểu tường minh trong cùng danh sách.
-- Phải có initializer (trừ vài trường hợp đặc biệt không áp dụng như “var không kiểu”); không `var x = null;` đơn độc (không suy ra được). Tránh `var` khi kiểu mất đi ở API boundary khó đọc.
+- Local/resource/basic-for declaration dùng `var` phải có initializer suy kiểu được; enhanced-for suy kiểu từ iterable/array, lambda parameter suy từ target type. Không `var x = null;` đơn độc. Tránh `var` khi che mất ý nghĩa kiểu.
 - Xem thêm edge cases §6 và [typesystem.md](typesystem.md).
 
 ---
@@ -898,7 +901,7 @@ int r = switch (obj) {
 
 **Ghi chú:**
 
-- Xuất hiện cùng **switch expressions** (preview 12/13, final **Java 14**, JEP 361). Chỉ **trả giá trị từ nhánh** `switch` dạng block — không phải iterator.
+- `yield` xuất hiện ở **Java 13 preview**; switch expressions preview từ Java 12 (khi đó dùng `break value`), final **Java 14**, JEP 361. `yield` trả giá trị từ nhánh `switch` dạng block — không phải iterator.
 - **Khác C# / Python** `yield return` / generator. Trong Java không có coroutine `yield` kiểu đó.
 - Contextual: ở vị trí không phải switch expression, `yield` có thể là identifier (code cũ đặt tên method `yield()` vẫn biên dịch trong nhiều ngữ cảnh) — đừng cố đặt tên mới.
 - Trong nhánh `->` expression không cần `yield`; trong `{ }` phải `yield` (hoặc `throw`). [statements.md](statements.md).
@@ -932,10 +935,10 @@ public non-sealed class Triangle implements Shape { }
 **Ghi chú:**
 
 - Final **Java 17** (JEP 409). Class/interface `sealed` chỉ cho phép subtype trong `permits` (hoặc cùng compilation unit nếu bỏ `permits` và khai báo cùng file — quy tắc JLS).
-- Mọi subtype trực tiếp phải ghi: `final`, `sealed`, hoặc `non-sealed`.
+- Direct subclass phải `final`/`sealed`/`non-sealed` (record/enum có modifier ngầm); direct subinterface phải `sealed`/`non-sealed`.
 - **`permits`:** danh sách tường minh — hỗ trợ exhaustiveness trong `switch` pattern (21+) mà không cần `default` nếu phủ hết.
 - **`non-sealed`:** mở lại cây kế thừa từ điểm đó (subtype tự do) — dùng khi muốn “chốt một tầng” rồi cho plugin mở rộng.
-- Subtype thường cùng module/package theo quy tắc accessibility. Kết hợp record + sealed rất hợp domain model. [oop.md](oop.md) · [statements.md](statements.md).
+- Named module: permitted direct subtypes phải cùng module; unnamed module: phải cùng package. [oop.md](oop.md) · [statements.md](statements.md).
 
 ---
 
@@ -946,6 +949,7 @@ return switch (shape) {
     case Circle c when c.r() > 10 -> "big circle";
     case Circle c -> "small circle";
     case Rectangle r -> "rect";
+    case Triangle _ -> "triangle";
 };
 ```
 
@@ -971,7 +975,7 @@ module com.example.app {
 }
 ```
 
-**Ghi chú:** Chỉ đặc biệt trong `module-info.java` (và ngữ pháp module). Ngoài file đó thường dùng được làm identifier. Chi tiết: [packages-modules.md](packages-modules.md) · §6 bên dưới.
+**Ghi chú:** Các từ này có nghĩa đặc biệt trong khai báo module; riêng `module` còn dùng trong `import module` (Java 25+), kể cả ngoài `module-info.java`. Ngoài ngữ cảnh tương ứng, chúng thường dùng được làm identifier. Chi tiết: [packages-modules.md](packages-modules.md) · §6 bên dưới.
 
 ---
 
@@ -988,11 +992,11 @@ for (Order _ : orders) {
     count++;
 }
 
-switch (obj) {
-    case Point(_, int y) -> y;           // bỏ qua x
+String description = switch (obj) {
+    case Point(_, int y) -> "y=" + y;    // bỏ qua x
     case String _ -> "text";
     default -> "other";
-}
+};
 
 BiFunction<Integer, Integer, Integer> add = (_, y) -> y + 1; // bỏ tham số đầu
 ```
@@ -1000,7 +1004,7 @@ BiFunction<Integer, Integer, Integer> add = (_, y) -> y + 1; // bỏ tham số �
 **Ghi chú:**
 
 - Không đọc/gán `_` như biến thường; nhiều `_` trong cùng scope được phép.
-- Trước 22, `_` từng là identifier hợp lệ rồi bị hạn chế dần (preview/unnamed qua 21–22) — code cũ tên `_` cần đổi khi lên 22+.
+- `_` là identifier thường đến Java 8 (có cảnh báo), **reserved keyword từ Java 9**; unnamed variables/patterns preview ở 21, final ở 22. Không được đọc `_` như tên biến.
 - Thay convention `ignored` / `unused`. Kết hợp record patterns / switch: [statements.md](statements.md).
 
 ---
@@ -1040,9 +1044,9 @@ Một số token **trông như keyword** nhưng chỉ dành riêng ở ngữ c�
 
 `var` **không** phải reserved keyword toàn cục: tên method/`var` như identifier vẫn tồn tại ở một số vị trí lịch sử, nhưng **đừng** đặt tên mới là `var`. Inference thất bại → ghi kiểu tường minh.
 
-### 6.2 Module keywords — chỉ “đặc biệt” trong `module-info`
+### 6.2 Module keywords — khai báo module và module import
 
-`module`, `requires`, `exports`, `opens`, `provides`, `uses`, `to`, `with`, `transitive`, `open` là **contextual** cho khai báo module (Java 9+).
+`module`, `requires`, `exports`, `opens`, `provides`, `uses`, `to`, `with`, `transitive`, `open` là **contextual** cho khai báo module (Java 9+). `module` còn dùng trong module import từ Java 25: `import module java.sql;`.
 
 ```java
 // file thường: hợp lệ ở nhiều ngữ cảnh
@@ -1062,7 +1066,7 @@ void requires() { }
 | `sealed` / `permits` / `non-sealed` | Khai báo sealed hierarchy | Contextual |
 | `yield` | Giá trị nhánh switch expression | Method tên `yield` legacy vẫn gặp |
 | `when` | Guard sau pattern | Contextual |
-| `_` | Unnamed (22+) | Không còn dùng như tên biến thường |
+| `_` | **Reserved keyword** từ 9; unnamed từ 22 | Không dùng làm identifier thường |
 
 ### 6.4 Literal vs keyword
 
@@ -1089,12 +1093,12 @@ Danh sách reserved keywords cốt lõi ổn định từ lâu; **tính năng m�
 | 9 | Module contextual: `module` `requires` `exports` … | Chỉ `module-info.java` |
 | **10** | `var` | Local-variable type inference (JEP 286) |
 | 11 | `var` trên lambda parameters | JEP 323 |
-| 12–13 | switch expressions / `yield` | **Preview** |
+| 12–13 | switch expressions | **Preview**; `yield` từ 13 |
 | **14** | `switch` expression + `yield` | Final (JEP 361) |
 | 15 | Text blocks | Không keyword mới (`"""`) |
 | **16** | `record`; `instanceof` pattern | JEP 395, JEP 394 |
 | **17** | `sealed` / `permits` / `non-sealed`; `strictfp` no-op semantics | JEP 409; JEP 306 |
-| 18–20 | Pattern switch / record patterns | Preview lặp |
+| 18–20 | Pattern switch; record patterns từ 19 | Preview lặp |
 | **21** | Pattern `switch` + `when`; record patterns; virtual threads (API) | JEP 441, 440; VT không thêm keyword |
 | **22** | Unnamed `_` | JEP 456 |
 | 23–24 | … | Chủ yếu API / preview khác |

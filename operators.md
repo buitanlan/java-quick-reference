@@ -14,7 +14,7 @@ Không có con trỏ / `*` `&` kiểu C.
 - [1. Tổng quan & nguyên tắc](#1-tổng-quan--nguyên-tắc)
 - [2. Bảng ưu tiên (precedence)](#2-bảng-ưu-tiên-precedence)
 - [3. Số học & `%` & overflow](#3-số-học----overflow)
-- [4. `++` / `--`](#4----)
+- [4. `++` / `--`](#4-----)
 - [5. Quan hệ & bằng (`==` vs `equals`)](#5-quan-hệ--bằng--vs-equals)
 - [6. Logic & short-circuit](#6-logic--short-circuit)
 - [7. Bitwise & dịch bit](#7-bitwise--dịch-bit)
@@ -34,6 +34,7 @@ Không có con trỏ / `*` `&` kiểu C.
 ## 1. Tổng quan & nguyên tắc
 
 - Biểu thức đánh giá theo **precedence** + **associativity**; khi nghi ngờ → dùng ngoặc.
+- Java đánh giá operands/arguments từ **trái sang phải** theo cấu trúc biểu thức; precedence quyết định cách nhóm, không cho phép đảo side-effects tùy ý. `&&`, `||`, `?:` chỉ đánh giá nhánh cần thiết.
 - `&&` / `||` là **short-circuit**; `&` / `|` trên `boolean` **không** short-circuit.
 - Số nguyên: tràn **two’s complement** im lặng (không checked mặc định) — dùng `Math.*Exact` khi cần bắt tràn.
 - So sánh object: `==` so reference (hoặc primitive value); nội dung → `equals` — chi tiết [typesystem.md §10](typesystem.md#10-identity--vs-equals-vs-compareto).
@@ -90,7 +91,8 @@ int n = -7 % 2;       // -1 — dấu theo dividend (khác một số ngôn ng�
 ```java
 int wrap = Integer.MAX_VALUE + 1; // Integer.MIN_VALUE — không throw
 int s = Math.addExact(Integer.MAX_VALUE, 1); // throws ArithmeticException
-long p = Math.multiplyExact(1_000_000, 1_000_000); // OK nếu fit long
+long p = Math.multiplyExact(1_000_000L, 1_000_000L); // 10^12, chọn overload long
+// Math.multiplyExact(1_000_000, 1_000_000) chọn int và ném lỗi trước khi gán sang long.
 ```
 
 | API | Khi nào |
@@ -123,12 +125,16 @@ int b = x++; // x=3, b=2
 ## 5. Quan hệ & bằng (`==` vs `equals`)
 
 ```java
-1 < 2;  2 <= 2;  3 > 1;  3 >= 4; // false
-1 == 1; 1 != 2;
+boolean less = 1 < 2;        // true
+boolean atMost = 2 <= 2;     // true
+boolean greater = 3 > 1;     // true
+boolean atLeast = 3 >= 4;    // false
+boolean same = 1 == 1;       // true
+boolean different = 1 != 2;  // true
 
 String s = "a";
 String t = new String("a");
-s == t;              // false — khác instance
+boolean sameObject = s == t; // false — khác instance
 s.equals(t);         // true
 Objects.equals(s, t); // null-safe
 Objects.equals(null, null); // true
@@ -145,7 +151,7 @@ Objects.equals(null, null); // true
 ```java
 Integer a = 128;
 Integer b = 128;
-a == b;                 // thường false — ngoài cache
+boolean sameWrapper = a == b; // không được dựa vào identity ngoài miền cache bảo đảm
 Objects.equals(a, b);   // true
 ```
 
@@ -162,14 +168,14 @@ Override `equals`/`hashCode`: [oop.md](oop.md).
 boolean a = true;
 boolean b = false;
 
-a && b;  // false — không đánh giá vế phải nếu a false
-a || b;  // true  — không đánh giá vế phải nếu a true
-!a;
+boolean both = a && b;  // false — không đánh giá vế phải nếu a false
+boolean either = a || b; // true — không đánh giá vế phải nếu a true
+boolean negated = !a;
 
 // Không short-circuit:
-a & b;
-a | b;
-a ^ b;   // XOR boolean
+boolean andAll = a & b;
+boolean orAll = a | b;
+boolean xor = a ^ b;   // XOR boolean
 ```
 
 ```java
@@ -193,14 +199,14 @@ if (s != null && s.length() > 0) { // an toàn nhờ short-circuit
 int x = 0b0011_1100;
 int y = 0b0000_1101;
 
-x & y;   // AND
-x | y;   // OR
-x ^ y;   // XOR
-~x;      // NOT (đảo bit theo bề rộng int/long)
+int and = x & y;   // AND
+int or = x | y;    // OR
+int xor = x ^ y;   // XOR
+int not = ~x;      // NOT (đảo bit theo bề rộng int/long)
 
-x << 2;  // dịch trái
-x >> 2;  // dịch phải số học (giữ dấu)
-x >>> 2; // dịch phải logic (lấp 0)
+int left = x << 2;  // dịch trái
+int arithmetic = x >> 2;  // dịch phải số học (giữ dấu)
+int logical = x >>> 2; // dịch phải logic (lấp 0)
 ```
 
 - Shift mask: khoảng dịch lấy modulo bề rộng (`int` 5 bit thấp, `long` 6 bit) — `1 << 32` ≡ `1 << 0` với `int`.
@@ -225,6 +231,7 @@ b += 1;       // OK — compound có cast ngầm
 
 - Gán là biểu thức (trả giá trị gán) — tránh chuỗi khó đọc `a = b = c`.
 - Compound với wrapper có thể unbox/box ẩn → NPE nếu LHS wrapper `null` (`Integer x = null; x += 1;`).
+- Compound assignment chỉ đánh giá LHS **một lần**: `array[i++] += v` không tương đương việc viết lại hai lần `array[i++]`.
 
 ---
 
@@ -269,6 +276,7 @@ String label = user != null ? user.name() : "anonymous";
 
 - Associativity phải → trái: `a ? b : c ? d : e` ≡ `a ? b : (c ? d : e)`.
 - Hai nhánh phải compatible (numeric promotion / reference lub).
+- Numeric conditional có thể unbox dù nhánh được chọn là wrapper: `Integer n = null; int x = ok ? n : 0;` ném NPE nếu chọn `n`. `-Integer.MIN_VALUE` vẫn là `Integer.MIN_VALUE` vì overflow; ví dụ `abs` không xử lý biên này.
 - Đừng lồng ternary sâu — dùng `if` / switch expression.
 
 ---
